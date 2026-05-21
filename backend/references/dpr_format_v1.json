@@ -1,0 +1,175 @@
+{
+  "version": "1.0",
+  "source": "DPR format Vol-I.pdf + Adipur + Akola + ADRA + ADTP",
+  "volumes": {
+    "I": {
+      "mandatory_chapters": [
+        {
+          "number": 1,
+          "canonical_title": "Executive Summary",
+          "required": true,
+          "keywords": ["executive summary", "salient features", "project overview"],
+          "min_pages": 3
+        },
+        {
+          "number": 2,
+          "canonical_title": "Traffic Survey",
+          "required": true,
+          "keywords": ["traffic survey", "traffic study", "traffic projection", "line capacity", "earning"],
+          "min_pages": 5
+        },
+        {
+          "number": 3,
+          "canonical_title": "Engineering Survey",
+          "required": true,
+          "keywords": ["engineering survey", "alignment", "topographical survey", "soil investigation", "DGPS"],
+          "min_pages": 5
+        },
+        {
+          "number": 4,
+          "canonical_title": "Land Requirement",
+          "required": true,
+          "keywords": ["land requirement", "land acquisition", "area of land"],
+          "min_pages": 1
+        },
+        {
+          "number": 5,
+          "canonical_title": "Permanent Way",
+          "required": true,
+          "keywords": ["permanent way", "track structure", "rail", "sleeper", "ballast"],
+          "min_pages": 1
+        },
+        {
+          "number": 6,
+          "canonical_title": "Formation, Tunnels & Bridges",
+          "required": true,
+          "keywords": ["formation", "tunnel", "bridge", "major bridge", "minor bridge", "ROB", "RUB"],
+          "min_pages": 2
+        },
+        {
+          "number": 7,
+          "canonical_title": "Stations & Yards",
+          "required": true,
+          "keywords": ["station", "yard", "platform", "loop line"],
+          "min_pages": 1
+        },
+        {
+          "number": 8,
+          "canonical_title": "Service Buildings",
+          "required": true,
+          "keywords": ["service building", "office", "workshop", "shed"],
+          "min_pages": 1
+        },
+        {
+          "number": 9,
+          "canonical_title": "Residential Buildings",
+          "required": true,
+          "keywords": ["residential", "staff quarter", "running room", "rest room"],
+          "min_pages": 1
+        },
+        {
+          "number": 10,
+          "canonical_title": "Shifting of Utilities",
+          "required": true,
+          "keywords": ["shifting", "utility", "relocation", "OHE", "power line"],
+          "min_pages": 1
+        },
+        {
+          "number": 11,
+          "canonical_title": "Electrical Traction & General",
+          "required": true,
+          "keywords": ["electrical", "traction", "OHE", "electric", "25KV"],
+          "min_pages": 2
+        },
+        {
+          "number": 12,
+          "canonical_title": "Signal & Telecommunication",
+          "required": true,
+          "keywords": ["signal", "telecommunication", "interlocking", "MACLS", "signalling"],
+          "min_pages": 2
+        },
+        {
+          "number": 13,
+          "canonical_title": "Environmental Assessment and Social Impact Assessment",
+          "required": true,
+          "keywords": ["environmental", "environment", "social impact", "EIA", "SIA", "ecological"],
+          "min_pages": 3
+        },
+        {
+          "number": 14,
+          "canonical_title": "Statutory Clearances",
+          "required": true,
+          "keywords": ["statutory", "clearance", "approval", "forest clearance", "environmental clearance"],
+          "min_pages": 1
+        },
+        {
+          "number": 15,
+          "canonical_title": "Cost Estimates",
+          "required": true,
+          "keywords": ["cost estimate", "estimated cost", "bill of quantity", "BoQ", "abstract of cost"],
+          "min_pages": 2
+        },
+        {
+          "number": 16,
+          "canonical_title": "Financial Analysis",
+          "required": true,
+          "keywords": ["financial", "FIRR", "financial internal rate", "NPV", "IRR"],
+          "min_pages": 2
+        },
+        {
+          "number": 17,
+          "canonical_title": "Economic Analysis",
+          "required": true,
+          "keywords": ["economic", "EIRR", "economic internal rate", "benefit cost", "BCR"],
+          "min_pages": 2
+        },
+        {
+          "number": 18,
+          "canonical_title": "Risk Analysis",
+          "required": true,
+          "keywords": ["risk", "risk analysis", "risk assessment", "mitigation"],
+          "min_pages": 1
+        }
+      ],
+      "optional_chapters": [
+        {
+          "canonical_title": "Geotechnical Investigation",
+          "keywords": ["geotechnical", "borehole", "SPT", "soil test"]
+        },
+        {
+          "canonical_title": "Disaster Management",
+          "keywords": ["disaster", "flood", "cyclone", "seismic"]
+        }
+      ],
+      "mandatory_tables": [
+        "Traffic table (line capacity utilization)",
+        "Earnings projection table",
+        "Land acquisition summary",
+        "List of major bridges",
+        "List of minor bridges",
+        "Cost estimate (department-wise)",
+        "FIRR calculation",
+        "EIRR calculation",
+        "Risk register"
+      ],
+      "expected_table_count_min": 15,
+      "expected_page_count_min": 100
+    }
+  },
+  "grading": {
+    "Gold": {"min": 95, "max": 100},
+    "Acceptable": {"min": 85, "max": 95},
+    "Partial": {"min": 70, "max": 85},
+    "Legacy": {"min": 50, "max": 70},
+    "Invalid": {"min": 0, "max": 50}
+  },
+  "scoring_weights": {
+    "chapter_score": 0.40,
+    "subchapter_score": 0.15,
+    "traffic_score": 0.10,
+    "engineering_score": 0.10,
+    "risk_score": 0.10,
+    "cost_score": 0.10,
+    "table_score": 0.05
+  }
+}

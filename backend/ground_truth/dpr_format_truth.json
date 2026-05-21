@@ -1,0 +1,33 @@
+{
+  "name": "DPR Format Vol-I (Railway Format Specification)",
+  "file": "DPR format Vol-I.pdf",
+  "classification": "format_specification",
+  "pages": 106,
+  "notes": "Fully image-scanned PDF. No extractable text. Used as visual reference for format spec. Chapters derived from cross-referencing Adipur+Akola+ADRA+ADTP DPRs.",
+  "chapters_present": [
+    "Executive Summary",
+    "Traffic Survey",
+    "Engineering Survey",
+    "Land Requirement",
+    "Permanent Way",
+    "Formation, Tunnels & Bridges",
+    "Stations & Yards",
+    "Service Buildings",
+    "Residential Buildings",
+    "Shifting of Utilities",
+    "Electrical Traction & General",
+    "Signal & Telecommunication",
+    "Environmental Assessment and Social Impact Assessment",
+    "Statutory Clearances",
+    "Cost Estimates",
+    "Financial Analysis",
+    "Economic Analysis",
+    "Risk Analysis"
+  ],
+  "tables": 18,
+  "risk": true,
+  "cost": true,
+  "financial": true,
+  "traffic": true,
+  "environmental": true
+}

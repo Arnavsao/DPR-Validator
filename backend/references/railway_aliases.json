@@ -1,0 +1,163 @@
+{
+  "version": "1.0",
+  "description": "Alias map for fuzzy chapter matching. Key = canonical title, values = accepted variants.",
+  "aliases": {
+    "Executive Summary": [
+      "Executive Summary",
+      "Salient Features",
+      "Project Summary",
+      "Introduction",
+      "Overview"
+    ],
+    "Traffic Survey": [
+      "Traffic Survey",
+      "Traffic Study",
+      "Traffic Projection",
+      "Traffic Forecast",
+      "Traffic Analysis",
+      "Traffic & Transportation Study",
+      "Traffic and Transportation",
+      "Transportation Study"
+    ],
+    "Engineering Survey": [
+      "Engineering Survey",
+      "Engg Survey",
+      "Enginnering Survey",
+      "Survey",
+      "Topographical Survey",
+      "Final Location Survey",
+      "FLS Report",
+      "Engineering Surveys and Investigations"
+    ],
+    "Land Requirement": [
+      "Land Requirement",
+      "Land Acquisition",
+      "Land Details",
+      "Land Area",
+      "Land",
+      "Land Requirements and Acquisition"
+    ],
+    "Permanent Way": [
+      "Permanent Way",
+      "P-Way",
+      "Track Structure",
+      "Track",
+      "Railway Track"
+    ],
+    "Formation, Tunnels & Bridges": [
+      "Formation, Tunnels & Bridges",
+      "Formation, Tunnels and Bridges",
+      "Formation, Level Crossings, Tunnels & Bridges",
+      "Formation & Bridges",
+      "Bridges and Tunnels",
+      "Civil Structures",
+      "Formation"
+    ],
+    "Stations & Yards": [
+      "Stations & Yards",
+      "Stations and Yards",
+      "Station Yards",
+      "Yard Design",
+      "Stations"
+    ],
+    "Service Buildings": [
+      "Service Buildings",
+      "Service Buildings (including offices, workshops, sheds)",
+      "Service Buildings (including offices, workshop, sheds etc.)",
+      "Service Buildings (Including Offices, Workshop, Sheds Etc.)",
+      "Service Building",
+      "Buildings",
+      "Office Buildings",
+      "Service & Other Buildings"
+    ],
+    "Residential Buildings": [
+      "Residential Buildings",
+      "Residential Buildings (staff quarters, running rooms, rest rooms)",
+      "Residential Buildings (Staff Quarters, Running Rooms, Rest",
+      "Residential Buildings (staff quarters, running rooms, rest",
+      "Residential Building",
+      "Staff Quarters",
+      "Quarters",
+      "Running Rooms"
+    ],
+    "Shifting of Utilities": [
+      "Shifting of Utilities",
+      "Utility Shifting",
+      "Shifting of Existing Utilities",
+      "Utilities Relocation"
+    ],
+    "Electrical Traction & General": [
+      "Electrical Traction & General",
+      "Electrical Traction and General",
+      "Electrical Traction",
+      "Electrification",
+      "OHE",
+      "Electrical & General",
+      "Electrical Works"
+    ],
+    "Signal & Telecommunication": [
+      "Signal & Telecommunication",
+      "Signal and Telecommunication",
+      "Signal & Telecommunications",
+      "Signal and Telecommunications",
+      "Signalling & Telecommunication",
+      "Signalling & Telecommunications",
+      "S&T",
+      "Signal & Telecom",
+      "Signalling",
+      "Signal, Telecommunication"
+    ],
+    "Environmental Assessment and Social Impact Assessment": [
+      "Environmental Assessment and Social Impact Assessment",
+      "Environmental Assesment and Social Impact",
+      "Environmental Assessment & Social Impact Assessment",
+      "Environmental Impact Assessment",
+      "EIA",
+      "EIA and SIA",
+      "Environmental & Social Impact",
+      "Environmental Assessment"
+    ],
+    "Statutory Clearances": [
+      "Statutory Clearances",
+      "Statutory Clearance",
+      "Clearances",
+      "Mandatory Clearances",
+      "Legal Clearances"
+    ],
+    "Cost Estimates": [
+      "Cost Estimates",
+      "Cost Estimate",
+      "Estimated Cost",
+      "Cost",
+      "Abstract of Cost",
+      "Cost Statement",
+      "Bill of Quantities",
+      "BoQ",
+      "Cost Estimation"
+    ],
+    "Financial Analysis": [
+      "Financial Analysis",
+      "Financial Appraisal",
+      "FIRR Analysis",
+      "Financial Internal Rate of Return",
+      "Financial Viability"
+    ],
+    "Economic Analysis": [
+      "Economic Analysis",
+      "Economic Appraisal",
+      "EIRR Analysis",
+      "Economic Internal Rate of Return",
+      "Economic Viability",
+      "Cost Benefit Analysis",
+      "BCR Analysis"
+    ],
+    "Risk Analysis": [
+      "Risk Analysis",
+      "Risk Assessment",
+      "Risk Register",
+      "Risk Management",
+      "Risk Mitigation",
+      "Risks"
+    ]
+  }
+}
