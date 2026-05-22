@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-from rapidfuzz import fuzz, process
+from rapidfuzz import fuzz, process, utils
 
 from core.config import settings
 
@@ -165,6 +165,7 @@ class FormatEngine:
                 canonical,
                 detected_titles,
                 scorer=fuzz.token_set_ratio,
+                processor=utils.default_process,
                 score_cutoff=threshold,
             )
             if best:
@@ -183,6 +184,7 @@ class FormatEngine:
                     alias,
                     detected_titles,
                     scorer=fuzz.token_set_ratio,
+                    processor=utils.default_process,
                     score_cutoff=threshold,
                 )
                 if alias_best:

@@ -19,7 +19,7 @@ _reader = None
 
 
 def _get_reader():
-    global _reader
+    global _reader, OCR_ENGINE
     if _reader is not None:
         return _reader
 

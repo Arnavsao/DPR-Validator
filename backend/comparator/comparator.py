@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-from rapidfuzz import fuzz, process
+from rapidfuzz import fuzz, process, utils
 
 from core.config import settings
 
@@ -107,6 +107,7 @@ def compare_with_reference(
         best = process.extractOne(
             ref_title, target_titles,
             scorer=fuzz.token_set_ratio,
+            processor=utils.default_process,
             score_cutoff=fuzzy_threshold,
         )
 
