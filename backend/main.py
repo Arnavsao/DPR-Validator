@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from core.config import settings
 from core.database import init_db
-from api.routes import documents, validation, comparison, reports
+from api.routes import documents, validation, comparison, reports, knowledge_base
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -39,7 +39,10 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title=settings.APP_NAME,
     version=settings.APP_VERSION,
-    description="Railway DPR (Detailed Project Report) Validation Engine",
+    description=(
+        "Railway DPR (Detailed Project Report) Validation Engine — "
+        "RAG pipeline using mxbai-embed-large + Ollama LLM against DPR format Vol-I spec."
+    ),
     lifespan=lifespan,
 )
 
@@ -58,6 +61,7 @@ app.include_router(documents.router)
 app.include_router(validation.router)
 app.include_router(comparison.router)
 app.include_router(reports.router)
+app.include_router(knowledge_base.router)
 
 
 # ---------------------------------------------------------------------------
