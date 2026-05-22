@@ -204,6 +204,32 @@ async def get_document_tables(doc_id: int, db: AsyncSession = Depends(get_db)):
 
 
 # ---------------------------------------------------------------------------
+# Pause & Resume endpoints
+# ---------------------------------------------------------------------------
+
+@router.post("/{doc_id}/pause")
+async def pause_document(doc_id: int, db: AsyncSession = Depends(get_db)):
+    """Pause the processing/validation of a document."""
+    doc = await db.get(Document, doc_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found.")
+    doc.is_paused = True
+    await db.commit()
+    return {"id": doc_id, "is_paused": True, "message": "Document processing paused."}
+
+
+@router.post("/{doc_id}/resume")
+async def resume_document(doc_id: int, db: AsyncSession = Depends(get_db)):
+    """Resume the processing/validation of a document."""
+    doc = await db.get(Document, doc_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found.")
+    doc.is_paused = False
+    await db.commit()
+    return {"id": doc_id, "is_paused": False, "message": "Document processing resumed."}
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -214,6 +240,10 @@ def _doc_to_dict(doc: Document) -> dict:
         "file_size": doc.file_size,
         "page_count": doc.page_count,
         "state": doc.state,
+        "is_paused": doc.is_paused,
+        "progress_percent": doc.progress_percent,
+        "current_stage": doc.current_stage,
+        "estimated_remaining_seconds": doc.estimated_remaining_seconds,
         "project_name": doc.project_name,
         "project_route": doc.project_route,
         "division": doc.division,

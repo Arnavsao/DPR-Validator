@@ -17,9 +17,10 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timezone
 from typing import Optional
+import asyncio
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from core.config import settings
 from models.db_models import (
@@ -146,6 +147,65 @@ def _compute_rag_score(results: list[ValidationResult]) -> dict:
 
 # ── Main Orchestrator ──────────────────────────────────────────────────────────
 
+async def _wait_if_paused(doc_id: int, db: AsyncSession) -> bool:
+    """Blocks in asyncio.sleep loop if document is paused."""
+    db.expire_all()
+    first_pause = True
+    prev_stage = None
+    while True:
+        stmt = select(Document.is_paused, Document.current_stage).where(Document.id == doc_id)
+        res = await db.execute(stmt)
+        row = res.fetchone()
+        if not row:
+            break
+        is_paused, current_stage = row[0], row[1]
+        
+        if not is_paused:
+            break
+            
+        if first_pause:
+            logger.info(f"Document {doc_id} validation is PAUSED. Entering sleep loop...")
+            prev_stage = current_stage if current_stage != "PAUSED — Click resume to continue..." else "Validating..."
+            stmt_update = (
+                update(Document)
+                .where(Document.id == doc_id)
+                .values(current_stage="PAUSED — Click resume to continue...")
+            )
+            await db.execute(stmt_update)
+            await db.commit()
+            first_pause = False
+            
+        await asyncio.sleep(1)
+        db.expire_all()
+    
+    if not first_pause and prev_stage:
+        stmt_restore = (
+            update(Document)
+            .where(Document.id == doc_id)
+            .values(current_stage=prev_stage)
+        )
+        await db.execute(stmt_restore)
+        await db.commit()
+        
+    return not first_pause
+
+
+async def _update_progress(doc_id: int, db: AsyncSession, percent: int, stage: str, remaining_secs: int):
+    """Update progress fields on Document."""
+    stmt = (
+        update(Document)
+        .where(Document.id == doc_id)
+        .values(
+            progress_percent=percent,
+            current_stage=stage,
+            estimated_remaining_seconds=remaining_secs
+        )
+    )
+    await db.execute(stmt)
+    await db.commit()
+    logger.info(f"Doc {doc_id} validation progress: {percent}% | {stage} | ~{remaining_secs}s remaining")
+
+
 async def run_rag_validation(doc_id: int, db: AsyncSession) -> Optional[ValidationRun]:
     """
     Full RAG-based validation pipeline for a document.
@@ -158,6 +218,11 @@ async def run_rag_validation(doc_id: int, db: AsyncSession) -> Optional[Validati
         return None
 
     logger.info(f"Starting RAG validation for doc {doc_id}: {doc.original_name}")
+
+    # Set state to VALIDATING and update initial progress
+    doc.state = DocumentState.VALIDATING
+    await db.commit()
+    await _update_progress(doc_id, db, 2, "Starting RAG validation process...", 120)
 
     # ── Check KB readiness ──────────────────────────────────────────────────
     if not chroma_store.is_knowledge_base_ready():
@@ -189,10 +254,14 @@ async def run_rag_validation(doc_id: int, db: AsyncSession) -> Optional[Validati
         ))
         await db.flush()
         doc.state = DocumentState.VALIDATED
-        await db.flush()
+        await db.commit()
+        await _update_progress(doc_id, db, 100, "Validation complete (Knowledge base error)", 0)
         return run
 
     # ── Fetch document data ─────────────────────────────────────────────────
+    await _wait_if_paused(doc_id, db)
+    await _update_progress(doc_id, db, 4, "Fetching document sections and pages...", 115)
+    
     # Chapter nodes
     chapter_result = await db.execute(
         select(DocumentNode).where(
@@ -242,7 +311,10 @@ async def run_rag_validation(doc_id: int, db: AsyncSession) -> Optional[Validati
     all_results: list[ValidationResult] = []
 
     # ── Task 1: Structure validation (chapter presence + order) ─────────────
+    await _wait_if_paused(doc_id, db)
+    await _update_progress(doc_id, db, 5, "Validating document chapter structure...", 110)
     logger.info("Task 1: Structure validation...")
+    
     spec_structure = retrieve_mandatory_structure()
     if spec_structure:
         structure_results = validate_structure(detected_chapters, spec_structure)
@@ -261,9 +333,27 @@ async def run_rag_validation(doc_id: int, db: AsyncSession) -> Optional[Validati
         ))
 
     # ── Task 2: Per-chapter completeness ────────────────────────────────────
-    logger.info(f"Task 2: Chapter-level completeness ({len(chapter_nodes)} chapters)...")
+    total_chapters = len(chapter_nodes)
+    logger.info(f"Task 2: Chapter-level completeness ({total_chapters} chapters)...")
+    
     for ch_idx, ch_node in enumerate(chapter_nodes):
+        # Wait if paused between chapters! Highly responsive validation.
+        await _wait_if_paused(doc_id, db)
+        
         ch_title = ch_node.title
+        
+        # Calculate percentage and estimated remaining time
+        # Task 2 maps to 5% - 80% range of the validation progress
+        ch_percent = 5 + int((ch_idx / total_chapters) * 75)
+        # Estimate ~12 seconds per chapter + 15s tables + 8s dependencies
+        ch_remaining = ((total_chapters - ch_idx) * 12) + 15 + 8
+        await _update_progress(
+            doc_id,
+            db,
+            ch_percent,
+            f"Validating chapter completeness: {ch_title} ({ch_idx+1}/{total_chapters})...",
+            ch_remaining
+        )
 
         # Collect chapter text from its pages
         ch_pages_text = ""
@@ -305,7 +395,10 @@ async def run_rag_validation(doc_id: int, db: AsyncSession) -> Optional[Validati
         logger.info(f"  {ch_title}: {result.status} (conf={result.confidence:.2f})")
 
     # ── Task 3: Table validation ─────────────────────────────────────────────
+    await _wait_if_paused(doc_id, db)
+    await _update_progress(doc_id, db, 80, "Validating mandatory table compliance...", 20)
     logger.info("Task 3: Table validation...")
+    
     table_spec_chunks = retrieve_for_query(
         "mandatory tables required DPR format",
         collection=COLLECTION_TABLE,
@@ -327,7 +420,10 @@ async def run_rag_validation(doc_id: int, db: AsyncSession) -> Optional[Validati
         logger.warning("No table spec chunks retrieved — skipping table validation.")
 
     # ── Task 4: Section dependencies ─────────────────────────────────────────
+    await _wait_if_paused(doc_id, db)
+    await _update_progress(doc_id, db, 90, "Analyzing inter-section logical dependencies...", 8)
     logger.info("Task 4: Section dependency checks...")
+    
     present_chapter_titles = [n.title for n in chapter_nodes]
     dep_spec_chunks = retrieve_for_query(
         "FIRR EIRR financial economic analysis dependency traffic cost",
@@ -339,6 +435,7 @@ async def run_rag_validation(doc_id: int, db: AsyncSession) -> Optional[Validati
         logger.info(f"Dependencies: {len(dep_results)} issues found.")
 
     # ── Compute scores ───────────────────────────────────────────────────────
+    await _update_progress(doc_id, db, 95, "Synthesizing scores and final findings...", 2)
     scores = _compute_rag_score(all_results)
     overall_score = scores["overall"]
     grade = _compute_grade(overall_score)
@@ -393,9 +490,10 @@ async def run_rag_validation(doc_id: int, db: AsyncSession) -> Optional[Validati
 
     await db.flush()
 
-    # Update document state
+    # Update document state and progress
     doc.state = DocumentState.VALIDATED
-    await db.flush()
+    await db.commit()
+    await _update_progress(doc_id, db, 100, "Validation complete", 0)
 
     logger.info(f"Persisted {len(all_results)} findings for doc {doc_id}.")
     return run

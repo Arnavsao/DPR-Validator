@@ -1,4 +1,5 @@
 'use client';
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import { api } from '@/lib/api';
@@ -156,11 +157,59 @@ export default function Dashboard() {
                         {doc.project_route && (
                           <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{doc.project_route}</div>
                         )}
+                        {['PARSING', 'OCR', 'TABLES', 'VALIDATING'].includes(doc.state) && (
+                          <div style={{
+                            marginTop: 8,
+                            padding: '8px 12px',
+                            borderRadius: 8,
+                            background: doc.is_paused ? 'rgba(245,158,11,0.05)' : 'rgba(255,255,255,0.02)',
+                            border: `1px solid ${doc.is_paused ? 'rgba(245,158,11,0.2)' : 'var(--border)'}`,
+                            maxWidth: 240,
+                            fontSize: 11
+                          }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                              <span style={{ fontWeight: 500, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 160 }}>
+                                {doc.current_stage || 'Processing...'}
+                              </span>
+                              <span style={{ fontWeight: 700, color: doc.is_paused ? 'var(--amber)' : '#6BA3FF' }}>
+                                {doc.progress_percent || 0}%
+                              </span>
+                            </div>
+                            
+                            <div style={{ height: 5, borderRadius: 2.5, background: 'var(--surface-3)', overflow: 'hidden', position: 'relative', marginBottom: (doc.is_paused || !doc.estimated_remaining_seconds || doc.estimated_remaining_seconds <= 0) ? 0 : 6 }}>
+                              <div
+                                className={doc.is_paused ? '' : 'pulse-blue'}
+                                style={{
+                                  height: '100%',
+                                  width: `${doc.progress_percent || 0}%`,
+                                  borderRadius: 2.5,
+                                  background: doc.is_paused ? 'var(--amber)' : 'linear-gradient(90deg, #1557CC, #6BA3FF)',
+                                  transition: 'width 0.4s ease',
+                                  position: 'absolute',
+                                  left: 0,
+                                  top: 0
+                                }}
+                              />
+                            </div>
+
+                            {!doc.is_paused && doc.estimated_remaining_seconds !== undefined && doc.estimated_remaining_seconds > 0 && (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 4, color: 'var(--text-secondary)' }}>
+                                <Clock size={10} style={{ color: 'var(--text-muted)' }} />
+                                <span>
+                                  ~{doc.estimated_remaining_seconds >= 60 
+                                    ? `${Math.floor(doc.estimated_remaining_seconds / 60)}m ${doc.estimated_remaining_seconds % 60}s` 
+                                    : `${doc.estimated_remaining_seconds}s`
+                                  } remaining
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </td>
                       <td style={{ padding: '14px 20px', color: 'var(--text-secondary)' }}>{doc.page_count || '—'}</td>
                       <td style={{ padding: '14px 20px', color: 'var(--text-secondary)' }}>{formatBytes(doc.file_size)}</td>
                       <td style={{ padding: '14px 20px' }}>
-                        <StateChip state={doc.state} />
+                        <StateChip state={doc.state} isPaused={doc.is_paused} />
                       </td>
                       <td style={{ padding: '14px 20px' }}>
                         {doc.state === 'VALIDATED'
@@ -173,6 +222,9 @@ export default function Dashboard() {
                       </td>
                       <td style={{ padding: '14px 20px' }}>
                         <div style={{ display: 'flex', gap: 8 }}>
+                          {['PARSING', 'OCR', 'TABLES', 'VALIDATING'].includes(doc.state) && (
+                            <PauseResumeButton doc={doc} />
+                          )}
                           {doc.state === 'VALIDATED' && (
                             <Link href={`/validation/${doc.id}`} style={actionStyle('#1557CC')}>
                               Results
@@ -199,14 +251,23 @@ export default function Dashboard() {
   );
 }
 
-function StateChip({ state }: { state: string }) {
+function StateChip({ state, isPaused }: { state: string; isPaused?: boolean }) {
   const stateLabels: Record<string, string> = {
     UPLOADED: 'Uploaded', PARSING: 'Parsing…', OCR: 'OCR…',
-    TABLES: 'Tables…', STRUCTURED: 'Ready', VALIDATED: 'Validated', FAILED: 'Failed',
+    TABLES: 'Tables…', STRUCTURED: 'Ready', VALIDATING: 'Validating…', VALIDATED: 'Validated', FAILED: 'Failed',
   };
+
+  if (isPaused) {
+    return (
+      <span className="state-badge state-paused">
+        <span>⏸</span> Paused
+      </span>
+    );
+  }
+
   return (
     <span className={`state-badge state-${state.toLowerCase()}`}>
-      {['PARSING','OCR','TABLES'].includes(state) && <span className="pulse-blue">●</span>}
+      {['PARSING','OCR','TABLES','VALIDATING'].includes(state) && <span className="pulse-blue">●</span>}
       {stateLabels[state] ?? state}
     </span>
   );
@@ -240,6 +301,44 @@ function ValidateButton({ docId }: { docId: number }) {
   return (
     <button onClick={handleValidate} style={actionStyle('#F59E0B')}>
       Validate
+    </button>
+  );
+}
+
+function PauseResumeButton({ doc }: { doc: any }) {
+  const { refetch } = useQuery({ queryKey: ['documents'], queryFn: api.listDocuments });
+  const [isPending, setIsPending] = useState(false);
+
+  const handleToggle = async () => {
+    setIsPending(true);
+    try {
+      if (doc.is_paused) {
+        await api.resumeDocument(doc.id);
+      } else {
+        await api.pauseDocument(doc.id);
+      }
+      refetch();
+    } catch (err) {
+      console.error('Failed to toggle pause/resume state:', err);
+    } finally {
+      setIsPending(false);
+    }
+  };
+
+  const buttonColor = doc.is_paused ? '#10B981' : '#F59E0B'; // green to resume, amber to pause
+  const buttonText = doc.is_paused ? 'Resume' : 'Pause';
+
+  return (
+    <button
+      onClick={handleToggle}
+      disabled={isPending}
+      style={{
+        ...actionStyle(buttonColor),
+        opacity: isPending ? 0.6 : 1,
+        cursor: isPending ? 'not-allowed' : 'pointer'
+      }}
+    >
+      {buttonText}
     </button>
   );
 }

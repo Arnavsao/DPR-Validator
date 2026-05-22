@@ -24,6 +24,7 @@ class DocumentState(str, enum.Enum):
     OCR        = "OCR"
     TABLES     = "TABLES"
     STRUCTURED = "STRUCTURED"
+    VALIDATING = "VALIDATING"
     VALIDATED  = "VALIDATED"
     FAILED     = "FAILED"
 
@@ -83,6 +84,12 @@ class Document(Base):
     state:         Mapped[str]  = mapped_column(
         SAEnum(DocumentState), default=DocumentState.UPLOADED
     )
+
+    # Progress and control fields
+    is_paused:                   Mapped[bool]            = mapped_column(Boolean, default=False)
+    progress_percent:            Mapped[int]             = mapped_column(Integer, default=0)
+    current_stage:               Mapped[Optional[str]]   = mapped_column(Text, nullable=True)
+    estimated_remaining_seconds: Mapped[int]             = mapped_column(Integer, default=0)
 
     # Extracted metadata
     project_name:  Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
