@@ -1,17 +1,27 @@
 """
-RAG Scoring — Orchestrates the full RAG-based DPR validation pipeline.
+RAG Scoring — Orchestrates the RAG-based DPR validation pipeline.
 
 This replaces scoring.py as the primary validation path.
 scoring.py is kept as a heuristic fallback (mode=heuristic).
 
-Pipeline:
+── CHAPTER PILOT SCOPE ──────────────────────────────────────────────────────
+Currently validating CHAPTER 1 ONLY (Executive Summary) as a pilot.
+This keeps LLM calls to a minimum and lets us verify accuracy quickly.
+
+To scale to more chapters:
+  1. Add chapter numbers to ACTIVE_CHAPTER_NUMBERS below.
+     e.g.  ACTIVE_CHAPTER_NUMBERS = {1, 2}   → adds Traffic Survey (Ch.2)
+           ACTIVE_CHAPTER_NUMBERS = set()    → validates ALL detected chapters
+  2. Each new chapter = ~1 LLM call. Budget ~5–15s per chapter (9b model).
+  3. Table validation (Task 3) is disabled for now — uncomment when Ch.2+ active.
+  4. Section dependency checks (Task 4) make sense only from Ch.15+ — disabled.
+
+Pipeline (Chapter 1 pilot):
   1. Load document nodes + page texts from DB
-  2. Structure check (chapter order + presence)
-  3. Per-chapter: retrieve spec context → LLM completeness check
-  4. Table validation
-  5. Section dependency checks
-  6. Executive summary check
-  7. Aggregate → ValidationRun + Finding rows with evidence
+  2. Structure check  — is Chapter 1 present at position 1?
+  3. Chapter 1 completeness — is the Executive Summary complete?
+  4. (Table & Dependency validation skipped in pilot — see SCALE comments below)
+  5. Aggregate → ValidationRun + Finding rows with evidence
 """
 from __future__ import annotations
 import logging
@@ -48,6 +58,42 @@ from rag.llm_validator import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+# ── Chapter Pilot Scope ────────────────────────────────────────────────────────
+# Controls which chapter numbers go through LLM completeness validation.
+#
+# SCALE: To add more chapters, simply add their Vol-I number here.
+#   {1}          → pilot:  Executive Summary only          (~1 LLM call)
+#   {1, 2}       → pilot+: adds Traffic Survey             (~2 LLM calls)
+#   {1, 2, 3}    → small:  adds Engineering Survey         (~3 LLM calls)
+#   set()        → full:   ALL detected chapters validated  (~18 LLM calls)
+#
+# Note: an empty set() means "no filter" — ALL chapters are processed.
+ACTIVE_CHAPTER_NUMBERS: set[int] = {1}
+
+# Mapping from canonical chapter title → chapter number for filtering.
+# This is consulted when chapter nodes don't have a numeric ID.
+CHAPTER_TITLE_TO_NUMBER: dict[str, int] = {
+    "Executive Summary": 1,
+    "Traffic Survey": 2,
+    "Engineering Survey": 3,
+    "Land Requirement": 4,
+    "Permanent Way": 5,
+    "Formation, Tunnels & Bridges": 6,
+    "Stations & Yards": 7,
+    "Service Buildings": 8,
+    "Residential Buildings": 9,
+    "Shifting of Utilities": 10,
+    "Electrical Traction & General": 11,
+    "Signal & Telecommunication": 12,
+    "Environmental Assessment and Social Impact Assessment": 13,
+    "Statutory Clearances": 14,
+    "Cost Estimates": 15,
+    "Financial Analysis": 16,
+    "Economic Analysis": 17,
+    "Risk Analysis": 18,
+}
 
 
 # ── Severity mapping ───────────────────────────────────────────────────────────
@@ -333,36 +379,63 @@ async def run_rag_validation(doc_id: int, db: AsyncSession) -> Optional[Validati
         ))
 
     # ── Task 2: Per-chapter completeness ────────────────────────────────────
+    #
+    # PILOT: Only chapters whose sequence number is in ACTIVE_CHAPTER_NUMBERS
+    # are validated in detail. This cuts LLM calls to the minimum needed for
+    # the pilot test.
+    #
+    # SCALE: Expand ACTIVE_CHAPTER_NUMBERS (top of this file) to validate more.
+    # SCALE: Remove the filter entirely (set ACTIVE_CHAPTER_NUMBERS = set())
+    #        to validate ALL detected chapters automatically.
+    #
+    def _chapter_is_active(node: DocumentNode, idx: int) -> bool:
+        """Return True if this chapter should be validated in detail."""
+        if not ACTIVE_CHAPTER_NUMBERS:  # empty set → validate all
+            return True
+        # Try matching by node sequence (1-indexed) or by title lookup
+        seq_num = idx + 1  # fallback: use discovery order as chapter number
+        title_num = CHAPTER_TITLE_TO_NUMBER.get(node.title, seq_num)
+        return title_num in ACTIVE_CHAPTER_NUMBERS
+
+    chapters_to_validate = [
+        (idx, node) for idx, node in enumerate(chapter_nodes)
+        if _chapter_is_active(node, idx)
+    ]
+    total_active = len(chapters_to_validate)
     total_chapters = len(chapter_nodes)
-    logger.info(f"Task 2: Chapter-level completeness ({total_chapters} chapters)...")
-    
-    for ch_idx, ch_node in enumerate(chapter_nodes):
-        # Wait if paused between chapters! Highly responsive validation.
+    logger.info(
+        f"Task 2: Chapter completeness — validating {total_active}/{total_chapters} chapters "
+        f"(active scope: {sorted(ACTIVE_CHAPTER_NUMBERS) or 'ALL'})"
+    )
+
+    for loop_idx, (ch_idx, ch_node) in enumerate(chapters_to_validate):
+        # Pause check between chapters for high responsiveness
         await _wait_if_paused(doc_id, db)
-        
+
         ch_title = ch_node.title
-        
-        # Calculate percentage and estimated remaining time
-        # Task 2 maps to 5% - 80% range of the validation progress
-        ch_percent = 5 + int((ch_idx / total_chapters) * 75)
-        # Estimate ~12 seconds per chapter + 15s tables + 8s dependencies
-        ch_remaining = ((total_chapters - ch_idx) * 12) + 15 + 8
+
+        # Progress: Task 2 maps to 10%–80% of validation progress.
+        # Estimate ~6 seconds per chapter for a 9b model (adjust for larger models).
+        # SCALE: Increase ch_remaining multiplier if using larger models:
+        #   9b  model → ~6s/chapter
+        #   32b model → ~12s/chapter
+        ch_percent = 10 + int((loop_idx / max(total_active, 1)) * 70)
+        ch_remaining = ((total_active - loop_idx) * 6) + 5  # 5s buffer for finalization
         await _update_progress(
             doc_id,
             db,
             ch_percent,
-            f"Validating chapter completeness: {ch_title} ({ch_idx+1}/{total_chapters})...",
-            ch_remaining
+            f"Validating: {ch_title} ({loop_idx + 1}/{total_active})...",
+            ch_remaining,
         )
 
-        # Collect chapter text from its pages
+        # Collect chapter text from its pages (start page + up to 4 following pages)
         ch_pages_text = ""
         if ch_node.page_start:
-            # Get text from chapter start page + next few pages
             for pn in range(ch_node.page_start, ch_node.page_start + 5):
                 ch_pages_text += page_text_map.get(pn, "")
 
-        # Find subsections for this chapter (by page range)
+        # Find subsections belonging to this chapter by page range
         ch_page_end = (
             chapter_nodes[ch_idx + 1].page_start
             if ch_idx + 1 < len(chapter_nodes)
@@ -373,17 +446,18 @@ async def run_rag_validation(doc_id: int, db: AsyncSession) -> Optional[Validati
             if n.page_start >= ch_node.page_start and n.page_start < ch_page_end
         ]
 
-        # Retrieve relevant spec chunks
+        # Retrieve matching spec chunks for this chapter
         spec_chunks = retrieve_for_chapter(
             chapter_title=ch_title,
             chapter_text=ch_pages_text[:400],
         )
 
-        # Special case: executive summary
+        # Route: Executive Summary gets its own dedicated validator
         if any(kw in ch_title.lower() for kw in ("executive", "summary", "salient")):
             exec_spec = retrieve_for_chapter("Executive Summary", ch_pages_text[:400])
             result = validate_executive_summary(ch_pages_text, exec_spec)
         else:
+            # Generic chapter completeness check
             result = validate_chapter(
                 chapter_title=ch_title,
                 chapter_text=ch_pages_text,
@@ -394,48 +468,54 @@ async def run_rag_validation(doc_id: int, db: AsyncSession) -> Optional[Validati
         all_results.append(result)
         logger.info(f"  {ch_title}: {result.status} (conf={result.confidence:.2f})")
 
-    # ── Task 3: Table validation ─────────────────────────────────────────────
-    await _wait_if_paused(doc_id, db)
-    await _update_progress(doc_id, db, 80, "Validating mandatory table compliance...", 20)
-    logger.info("Task 3: Table validation...")
-    
-    table_spec_chunks = retrieve_for_query(
-        "mandatory tables required DPR format",
-        collection=COLLECTION_TABLE,
-        top_k=15,
-    )
-    if not table_spec_chunks:
-        # Fallback: use chapter collection for table info
-        table_spec_chunks = retrieve_for_query(
-            "required tables FIRR EIRR traffic earnings cost land bridges",
-            top_k=8,
-        )
+    # ── Task 3: Table validation ──────────────────────────────────────────────
+    # PILOT: Skipped — tables are scattered across many chapters (2, 4, 6, 15–18).
+    # Running table validation only makes sense once those chapters are in scope.
+    #
+    # SCALE: When ACTIVE_CHAPTER_NUMBERS includes {2, 4, 6, 15, 16, 17, 18},
+    #   uncomment the block below to re-enable table validation:
+    #
+    # await _wait_if_paused(doc_id, db)
+    # await _update_progress(doc_id, db, 82, "Validating mandatory table compliance...", 12)
+    # logger.info("Task 3: Table validation...")
+    # table_spec_chunks = retrieve_for_query(
+    #     "mandatory tables required DPR format", collection=COLLECTION_TABLE, top_k=15
+    # )
+    # if not table_spec_chunks:
+    #     table_spec_chunks = retrieve_for_query(
+    #         "required tables FIRR EIRR traffic earnings cost land bridges", top_k=8
+    #     )
+    # if table_spec_chunks:
+    #     table_results = validate_tables(detected_table_dicts, table_spec_chunks)
+    #     all_results.extend(table_results)
+    #     tbl_pass = sum(1 for r in table_results if r.status == "PASS")
+    #     logger.info(f"Tables: {tbl_pass}/{len(table_results)} passed.")
+    logger.info("Task 3: Table validation SKIPPED (pilot — Ch.1 only). "
+                "SCALE: Uncomment Task 3 block when Ch.2+ chapters are in scope.")
 
-    if table_spec_chunks:
-        table_results = validate_tables(detected_table_dicts, table_spec_chunks)
-        all_results.extend(table_results)
-        tbl_pass = sum(1 for r in table_results if r.status == "PASS")
-        logger.info(f"Tables: {tbl_pass}/{len(table_results)} passed.")
-    else:
-        logger.warning("No table spec chunks retrieved — skipping table validation.")
-
-    # ── Task 4: Section dependencies ─────────────────────────────────────────
-    await _wait_if_paused(doc_id, db)
-    await _update_progress(doc_id, db, 90, "Analyzing inter-section logical dependencies...", 8)
-    logger.info("Task 4: Section dependency checks...")
-    
-    present_chapter_titles = [n.title for n in chapter_nodes]
-    dep_spec_chunks = retrieve_for_query(
-        "FIRR EIRR financial economic analysis dependency traffic cost",
-        top_k=5,
-    )
-    dep_results = validate_section_dependencies(present_chapter_titles, dep_spec_chunks)
-    all_results.extend(dep_results)
-    if dep_results:
-        logger.info(f"Dependencies: {len(dep_results)} issues found.")
+    # ── Task 4: Section dependencies ──────────────────────────────────────────
+    # PILOT: Skipped — cross-chapter dependencies (FIRR/EIRR) require Financial
+    # Analysis (Ch.16–17) and Traffic (Ch.2) to be present. Meaningless for Ch.1 alone.
+    #
+    # SCALE: When ACTIVE_CHAPTER_NUMBERS includes {2, 15, 16, 17, 18},
+    #   uncomment the block below to re-enable dependency validation:
+    #
+    # await _wait_if_paused(doc_id, db)
+    # await _update_progress(doc_id, db, 92, "Analyzing inter-section dependencies...", 5)
+    # logger.info("Task 4: Section dependency checks...")
+    # present_chapter_titles = [n.title for n in chapter_nodes]
+    # dep_spec_chunks = retrieve_for_query(
+    #     "FIRR EIRR financial economic analysis dependency traffic cost", top_k=5
+    # )
+    # dep_results = validate_section_dependencies(present_chapter_titles, dep_spec_chunks)
+    # all_results.extend(dep_results)
+    # if dep_results:
+    #     logger.info(f"Dependencies: {len(dep_results)} issues found.")
+    logger.info("Task 4: Dependency checks SKIPPED (pilot — Ch.1 only). "
+                "SCALE: Uncomment Task 4 block when Ch.15+ chapters are in scope.")
 
     # ── Compute scores ───────────────────────────────────────────────────────
-    await _update_progress(doc_id, db, 95, "Synthesizing scores and final findings...", 2)
+    await _update_progress(doc_id, db, 95, "Synthesizing scores and final findings...", 1)
     scores = _compute_rag_score(all_results)
     overall_score = scores["overall"]
     grade = _compute_grade(overall_score)

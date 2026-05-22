@@ -259,17 +259,18 @@ def _safe_result(
 
 
 # ── System Prompt ──────────────────────────────────────────────────────────────
-
-_SYSTEM_PROMPT = """You are an expert Indian Railway DPR (Detailed Project Report) validator.
-You validate user DPR documents against the official Railway DPR Format Volume-I specification.
-
-CRITICAL RULES:
-1. Base ALL judgments ONLY on the provided spec context and user DPR content given.
-2. Do NOT hallucinate. If you cannot find clear evidence, respond with status "UNKNOWN".
-3. Return ONLY valid JSON matching the exact schema requested. No prose before or after.
-4. Be strict: missing mandatory content = FAIL. Partially present = WARNING.
-5. Cite the exact spec section in reference_section (e.g., "Vol-I, Ch.2, §2.3").
-6. confidence: 0.0-1.0. Use high confidence (>0.85) only when evidence is clear.
+#
+# PILOT (9b model): Prompt is intentionally short to reduce token load.
+# SCALE: If you switch to a 32b+ model you can expand instructions here,
+#   e.g. add CoT reasoning steps, more examples, or stricter citation rules.
+#
+_SYSTEM_PROMPT = """You are a Railway DPR validator. Validate user DPR chapters against the Vol-I spec.
+RULES:
+1. Only use the provided spec and DPR content. No outside knowledge.
+2. If evidence is unclear, return status "UNKNOWN". Never guess.
+3. Return ONLY the JSON asked for. No extra text.
+4. FAIL = mandatory content missing. WARNING = partial. PASS = all present.
+5. confidence: 0.0-1.0. High (>0.8) only when evidence is clear.
 """
 
 
@@ -400,31 +401,27 @@ def validate_chapter(
         spec_chunks: Retrieved spec chunks for this chapter.
         section_titles: List of detected section titles within this chapter.
     """
-    spec_context = format_chunks_as_context(spec_chunks, max_chars=3000)
-    text_snippet = chapter_text[:2000] if chapter_text else "(No text extracted)"
+    # PILOT (9b model): Text truncated to 1500 chars to stay within small context window.
+    # SCALE: Increase to 2000+ chars when using 32b+ models for better coverage.
+    spec_context = format_chunks_as_context(spec_chunks, max_chars=2000)
+    text_snippet = chapter_text[:1500] if chapter_text else "(No text extracted)"
     sections_str = (
         "\n".join(f"  - {s}" for s in section_titles)
         if section_titles else "  (No subsections detected)"
     )
 
-    prompt = f"""## DPR FORMAT SPEC — Requirement for chapter "{chapter_title}":
+    # SCALE: Add more context like "must cite page numbers", "CoT reasoning required"
+    #   when upgrading to a model that handles longer prompts well.
+    prompt = f"""## SPEC for "{chapter_title}":
 {spec_context}
 
-## USER DPR — Chapter "{chapter_title}" content (first 2000 chars):
+## DPR chapter "{chapter_title}" (first 1500 chars):
 {text_snippet}
 
-## USER DPR — Subsections detected within this chapter:
+## Subsections found:
 {sections_str}
 
-## TASK:
-Assess whether the user DPR's chapter "{chapter_title}" satisfies the Vol-I specification.
-
-Check for:
-1. All mandatory subsections required by the spec
-2. Required data/figures/analysis mentioned in the spec
-3. Sufficient content depth (not just headings without substance)
-
-Return ONLY this JSON object:
+Return ONLY this JSON:
 {{
   "chapter": "{chapter_title}",
   "status": "PASS | FAIL | WARNING | UNKNOWN",
@@ -638,30 +635,30 @@ def validate_executive_summary(
     The executive summary must contain salient features including:
     project route, length, cost, FIRR, EIRR, key parameters.
     """
-    spec_context = format_chunks_as_context(spec_chunks, max_chars=2000)
-    text_snippet = exec_summary_text[:2500] if exec_summary_text else "(Not found)"
+    # PILOT (9b model): spec truncated to 1500 chars; DPR text to 2000 chars.
+    # SCALE: Increase both limits when using 32b+ models with larger context windows.
+    spec_context = format_chunks_as_context(spec_chunks, max_chars=1500)
+    text_snippet = exec_summary_text[:2000] if exec_summary_text else "(Not found)"
 
-    prompt = f"""## DPR FORMAT SPEC — Executive Summary requirements (Vol-I):
+    # SCALE: Add stricter citation rules (e.g., "cite page numbers") when using 32b+ models.
+    prompt = f"""## SPEC — Executive Summary (Vol-I Ch.1):
 {spec_context}
 
-## USER DPR — Executive Summary text (first 2500 chars):
+## DPR Executive Summary (first 2000 chars):
 {text_snippet}
 
-## TASK:
-Assess whether the Executive Summary satisfies the Vol-I requirements.
-
-It MUST include ALL of: project route/name, total length (km), estimated cost,
-FIRR value, EIRR value, traffic data, key engineering parameters.
+Must include: project route/name, total length (km), estimated cost,
+FIRR %, EIRR %, traffic data, key engineering parameters.
 
 Return ONLY this JSON:
 {{
   "chapter": "Executive Summary",
   "status": "PASS | FAIL | WARNING | UNKNOWN",
-  "missing_items": ["<missing element 1>", "..."],
+  "missing_items": ["<missing element>"],
   "reference_section": "Vol-I, Ch.1 Executive Summary",
-  "reason": "<explanation>",
+  "reason": "<one sentence>",
   "confidence": <0.0-1.0>,
-  "evidence": "<key phrase found in summary showing what IS present>",
+  "evidence": "<key phrase from DPR showing what IS present>",
   "suggested_correction": "<specific missing elements to add>"
 }}"""
 
