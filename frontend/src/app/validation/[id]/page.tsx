@@ -18,18 +18,21 @@ export default function ValidationPage() {
   const { data: doc }    = useQuery({ queryKey: ['doc', docId],        queryFn: () => api.getDocument(docId) });
   const { data: result } = useQuery({ queryKey: ['validation', docId], queryFn: () => api.getValidationResult(docId), enabled: !!docId });
   const { data: nodes }  = useQuery({ queryKey: ['nodes', docId],      queryFn: () => api.getNodes(docId), enabled: !!docId });
-  const { data: evidence = [] } = useQuery({ queryKey: ['evidence', docId], queryFn: () => api.getEvidence(docId), enabled: !!docId });
+  const { data: evidenceResp }  = useQuery({ queryKey: ['evidence', docId], queryFn: () => api.getEvidence(docId), enabled: !!docId });
+  // Backend wraps findings in { run_id, findings: [...] } — extract the array
+  const evidence = evidenceResp?.findings ?? [];
 
   if (!result) return <LoadingState />;
 
   const radarData = [
-    { subject: 'Chapters',    value: result.scores.chapter,     fullMark: 100 },
-    { subject: 'Subchapters', value: result.scores.subchapter,  fullMark: 100 },
-    { subject: 'Traffic',     value: result.scores.traffic,     fullMark: 100 },
-    { subject: 'Engineering', value: result.scores.engineering, fullMark: 100 },
-    { subject: 'Risk',        value: result.scores.risk,        fullMark: 100 },
-    { subject: 'Cost',        value: result.scores.cost,        fullMark: 100 },
-    { subject: 'Tables',      value: result.scores.table,       fullMark: 100 },
+    // Use backend field names (chapter_structure, chapter_completeness) with legacy fallbacks
+    { subject: 'Structure',     value: result.scores.chapter_structure   ?? result.scores.chapter    ?? 0, fullMark: 100 },
+    { subject: 'Completeness',  value: result.scores.chapter_completeness ?? result.scores.subchapter ?? 0, fullMark: 100 },
+    { subject: 'Tables',        value: result.scores.table               ?? 0, fullMark: 100 },
+    { subject: 'Traffic',       value: result.scores.traffic             ?? 0, fullMark: 100 },
+    { subject: 'Engineering',   value: result.scores.engineering         ?? 0, fullMark: 100 },
+    { subject: 'Risk',          value: result.scores.risk                ?? 0, fullMark: 100 },
+    { subject: 'Cost',          value: result.scores.cost                ?? 0, fullMark: 100 },
   ];
 
   const barData = radarData.map((d) => ({ name: d.subject, score: d.value }));

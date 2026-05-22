@@ -37,7 +37,12 @@ async def validate_document(
     doc = await db.get(Document, doc_id)
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found.")
-    if doc.state not in (DocumentState.STRUCTURED, DocumentState.VALIDATED, DocumentState.FAILED):
+    if doc.state not in (
+        DocumentState.STRUCTURED,
+        DocumentState.VALIDATED,
+        DocumentState.FAILED,
+        DocumentState.VALIDATING,  # allow re-trigger to unstick hung validations
+    ):
         raise HTTPException(
             status_code=400,
             detail=f"Document must be in STRUCTURED state. Current: {doc.state}"
@@ -105,9 +110,17 @@ async def get_validation_result(doc_id: int, db: AsyncSession = Depends(get_db))
         "chapters_total": run.chapters_total,
         "tables_found": run.tables_found,
         "scores": {
-            "chapter_structure": run.chapter_score,
+            # Primary names — match frontend ValidationResult interface
+            "chapter_structure":    run.chapter_score,
             "chapter_completeness": run.subchapter_score,
-            "table": run.table_score,
+            "table":                run.table_score,
+            # Legacy aliases for backward compat with older frontend code
+            "chapter":    run.chapter_score,
+            "subchapter": run.subchapter_score,
+            "traffic":    getattr(run, "traffic_score",     None),
+            "engineering":getattr(run, "engineering_score", None),
+            "risk":       getattr(run, "risk_score",        None),
+            "cost":       getattr(run, "cost_score",        None),
         },
     }
 
