@@ -1,0 +1,193 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─── Design Tokens ─── */
+:root {
+  --railway-blue:       #0A3D91;
+  --railway-blue-light: #1557CC;
+  --railway-blue-dim:   #0A3D9130;
+  --amber:              #F59E0B;
+  --amber-dim:          #F59E0B25;
+  --emerald:            #10B981;
+  --emerald-dim:        #10B98120;
+  --rose:               #F43F5E;
+  --rose-dim:           #F43F5E20;
+  --surface-0:          #090E1A;
+  --surface-1:          #0D1526;
+  --surface-2:          #111D35;
+  --surface-3:          #172447;
+  --border:             #1E2F52;
+  --border-light:       #253560;
+  --text-primary:       #E8EEF8;
+  --text-secondary:     #8B9BBF;
+  --text-muted:         #4A5878;
+}
+
+/* ─── Base ─── */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  background: var(--surface-0);
+  color: var(--text-primary);
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ─── Scrollbar ─── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--surface-1); }
+::-webkit-scrollbar-thumb { background: var(--border-light); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--railway-blue-light); }
+
+/* ─── Glass Cards ─── */
+.glass {
+  background: rgba(13, 21, 38, 0.7);
+  backdrop-filter: blur(16px) saturate(1.4);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+}
+
+.glass-sm {
+  background: rgba(17, 29, 53, 0.8);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+/* ─── Grade Badges ─── */
+.grade-gold       { color: #FFD700; background: rgba(255, 215, 0, 0.12); border: 1px solid rgba(255, 215, 0, 0.3); }
+.grade-acceptable { color: var(--emerald); background: var(--emerald-dim); border: 1px solid rgba(16,185,129,0.3); }
+.grade-partial    { color: var(--amber);   background: var(--amber-dim);   border: 1px solid rgba(245,158,11,0.3); }
+.grade-legacy     { color: #FB923C;        background: rgba(251,146,60,0.12); border: 1px solid rgba(251,146,60,0.3); }
+.grade-invalid    { color: var(--rose);    background: var(--rose-dim);    border: 1px solid rgba(244,63,94,0.3); }
+
+/* ─── State Badges ─── */
+.state-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 10px; border-radius: 100px;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
+}
+.state-uploaded   { background: rgba(139,155,191,0.15); color: var(--text-secondary); border: 1px solid var(--border); }
+.state-parsing, .state-ocr, .state-tables { background: rgba(21,87,204,0.2); color: #6BA3FF; border: 1px solid rgba(21,87,204,0.4); }
+.state-structured { background: rgba(245,158,11,0.15); color: var(--amber); border: 1px solid rgba(245,158,11,0.3); }
+.state-validated  { background: var(--emerald-dim); color: var(--emerald); border: 1px solid rgba(16,185,129,0.3); }
+.state-failed     { background: var(--rose-dim); color: var(--rose); border: 1px solid rgba(244,63,94,0.3); }
+
+/* ─── Severity ─── */
+.severity-critical { color: var(--rose);   }
+.severity-major    { color: var(--amber);  }
+.severity-minor    { color: #60A5FA;       }
+.severity-info     { color: var(--text-secondary); }
+
+/* ─── Score Ring ─── */
+.score-ring {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ─── Animated gradient background ─── */
+.gradient-bg {
+  background: radial-gradient(ellipse at 20% 50%, rgba(10,61,145,0.15) 0%, transparent 50%),
+              radial-gradient(ellipse at 80% 20%, rgba(245,158,11,0.06) 0%, transparent 40%),
+              var(--surface-0);
+}
+
+/* ─── Hover glow ─── */
+.glow-hover {
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+.glow-hover:hover {
+  box-shadow: 0 0 24px rgba(10, 61, 145, 0.3);
+  border-color: var(--railway-blue-light);
+}
+
+/* ─── Upload zone ─── */
+.upload-zone {
+  border: 2px dashed var(--border-light);
+  border-radius: 20px;
+  transition: all 0.25s ease;
+  cursor: pointer;
+}
+.upload-zone:hover, .upload-zone.drag-over {
+  border-color: var(--railway-blue-light);
+  background: rgba(21, 87, 204, 0.06);
+  box-shadow: 0 0 30px rgba(10,61,145,0.2);
+}
+
+/* ─── Pulse animation for parsing state ─── */
+@keyframes pulse-blue {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+.pulse-blue { animation: pulse-blue 1.5s ease-in-out infinite; }
+
+/* ─── Shimmer loading ─── */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.shimmer {
+  background: linear-gradient(90deg, var(--surface-2) 25%, var(--surface-3) 50%, var(--surface-2) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s infinite;
+  border-radius: 8px;
+}
+
+/* ─── Chapter tree ─── */
+.chapter-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 16px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  transition: all 0.15s ease;
+  cursor: pointer;
+}
+.chapter-row:hover { background: var(--surface-2); border-color: var(--border); }
+.chapter-found { border-left: 3px solid var(--emerald); }
+.chapter-alias { border-left: 3px solid var(--amber); }
+.chapter-missing { border-left: 3px solid var(--rose); opacity: 0.7; }
+
+/* ─── Score bars ─── */
+.score-bar-track {
+  height: 8px; border-radius: 4px; background: var(--surface-3);
+  overflow: hidden;
+}
+.score-bar-fill {
+  height: 100%; border-radius: 4px;
+  transition: width 0.8s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* ─── Sidebar nav ─── */
+.nav-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px; border-radius: 10px;
+  color: var(--text-secondary);
+  font-weight: 500; font-size: 13px;
+  transition: all 0.15s ease;
+  text-decoration: none;
+}
+.nav-item:hover  { background: var(--surface-2); color: var(--text-primary); }
+.nav-item.active { background: var(--railway-blue-dim); color: #6BA3FF; border: 1px solid rgba(21,87,204,0.3); }
+
+/* ─── Tooltip ─── */
+.recharts-tooltip-wrapper .recharts-default-tooltip {
+  background: var(--surface-2) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 10px !important;
+  color: var(--text-primary) !important;
+}
+
+/* ─── Diff rows ─── */
+.diff-present { color: var(--emerald); }
+.diff-missing { color: var(--rose); }
+.diff-extra   { color: var(--amber); }
