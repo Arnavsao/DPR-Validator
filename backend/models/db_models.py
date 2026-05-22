@@ -200,6 +200,9 @@ class ValidationRun(Base):
     chapters_total: Mapped[int]          = mapped_column(Integer, default=18)
     tables_found:   Mapped[int]          = mapped_column(Integer, default=0)
 
+    # RAG validation mode identifier: "rag" | "heuristic"
+    validation_mode: Mapped[str]         = mapped_column(String(16), default="heuristic")
+
     # Relationships
     document: Mapped["Document"]  = relationship(back_populates="validation_runs")
     findings: Mapped[list["Finding"]] = relationship(back_populates="run", cascade="all, delete-orphan")
@@ -223,6 +226,11 @@ class Finding(Base):
     confidence:  Mapped[float]         = mapped_column(Float, default=1.0)
     page:        Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     snippet:     Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # text excerpt from PDF
+
+    # RAG-specific: grounded evidence fields
+    reference_section:    Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # Vol-I section cited
+    evidence:             Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # text from user DPR
+    suggested_correction: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # fix guidance
 
     run: Mapped["ValidationRun"] = relationship(back_populates="findings")
 

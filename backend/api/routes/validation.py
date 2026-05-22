@@ -1,7 +1,10 @@
 """
 Validation API — run validation and retrieve scores/findings/evidence.
+Supports two modes:
+  - rag        (default): RAG pipeline using Ollama LLM + ChromaDB
+  - heuristic:            Original regex/fuzzy/scoring engine (fast fallback)
 """
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
 
@@ -11,6 +14,7 @@ from models.db_models import (
     DocumentState, NodeType,
 )
 from validator.scoring import run_validation
+from validator.rag_scoring import run_rag_validation
 
 router = APIRouter(prefix="/api/validate", tags=["validation"])
 
@@ -19,9 +23,17 @@ router = APIRouter(prefix="/api/validate", tags=["validation"])
 async def validate_document(
     doc_id: int,
     background_tasks: BackgroundTasks,
+    mode: str = Query(default="rag", description="Validation mode: 'rag' (default) or 'heuristic'"),
     db: AsyncSession = Depends(get_db),
 ):
-    """Run validation on a parsed document (background task)."""
+    """
+    Run validation on a parsed document.
+
+    Args:
+        doc_id: Document ID to validate.
+        mode: 'rag' uses the full LLM+ChromaDB pipeline (slow, high accuracy).
+              'heuristic' uses the original regex/fuzzy engine (fast, low accuracy).
+    """
     doc = await db.get(Document, doc_id)
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found.")
@@ -31,20 +43,38 @@ async def validate_document(
             detail=f"Document must be in STRUCTURED state. Current: {doc.state}"
         )
 
-    background_tasks.add_task(_validate_bg, doc_id)
-    return {"message": f"Validation started for document {doc_id}."}
+    if mode not in ("rag", "heuristic"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid mode '{mode}'. Must be 'rag' or 'heuristic'."
+        )
+
+    background_tasks.add_task(_validate_bg, doc_id, mode)
+    return {
+        "message": f"Validation started for document {doc_id} in '{mode}' mode.",
+        "mode": mode,
+        "note": (
+            "RAG validation may take 2–10 minutes depending on document size and LLM speed. "
+            "Poll /api/validate/{doc_id}/result for status."
+        ) if mode == "rag" else "Heuristic validation is fast (~5s).",
+    }
 
 
-async def _validate_bg(doc_id: int):
+async def _validate_bg(doc_id: int, mode: str = "rag"):
     from core.database import AsyncSessionLocal
+    import logging
+    _log = logging.getLogger(__name__)
     async with AsyncSessionLocal() as db:
         try:
-            await run_validation(doc_id, db)
+            if mode == "rag":
+                await run_rag_validation(doc_id, db)
+            else:
+                await run_validation(doc_id, db)
             await db.commit()
+            _log.info(f"Validation complete: doc={doc_id} mode={mode}")
         except Exception as e:
             await db.rollback()
-            import logging
-            logging.getLogger(__name__).error(f"Validation failed for doc {doc_id}: {e}")
+            _log.error(f"Validation failed for doc {doc_id} (mode={mode}): {e}")
 
 
 @router.get("/{doc_id}/result")
@@ -68,26 +98,26 @@ async def get_validation_result(doc_id: int, db: AsyncSession = Depends(get_db))
         "run_id": run.id,
         "document_id": doc_id,
         "run_at": run.run_at.isoformat(),
+        "validation_mode": getattr(run, "validation_mode", "heuristic"),
         "overall_score": run.overall_score,
         "grade": run.grade,
         "chapters_found": run.chapters_found,
         "chapters_total": run.chapters_total,
         "tables_found": run.tables_found,
         "scores": {
-            "chapter":     run.chapter_score,
-            "subchapter":  run.subchapter_score,
-            "traffic":     run.traffic_score,
-            "engineering": run.engineering_score,
-            "risk":        run.risk_score,
-            "cost":        run.cost_score,
-            "table":       run.table_score,
+            "chapter_structure": run.chapter_score,
+            "chapter_completeness": run.subchapter_score,
+            "table": run.table_score,
         },
     }
 
 
 @router.get("/{doc_id}/evidence")
 async def get_validation_evidence(doc_id: int, db: AsyncSession = Depends(get_db)):
-    """Return grounded findings/evidence for the latest validation run."""
+    """
+    Return grounded findings/evidence for the latest validation run.
+    RAG mode findings include: reference_section, evidence, suggested_correction.
+    """
     result = await db.execute(
         select(ValidationRun)
         .where(ValidationRun.document_id == doc_id)
@@ -103,17 +133,50 @@ async def get_validation_evidence(doc_id: int, db: AsyncSession = Depends(get_db
     )
     findings = findings_result.scalars().all()
 
-    return [
-        {
-            "id": f.id,
-            "category": f.category,
-            "severity": f.severity,
-            "issue": f.issue,
-            "detail": f.detail,
-            "match_type": f.match_type,
-            "confidence": f.confidence,
-            "page": f.page,
-            "snippet": f.snippet,
-        }
-        for f in findings
-    ]
+    return {
+        "run_id": run.id,
+        "validation_mode": getattr(run, "validation_mode", "heuristic"),
+        "findings": [
+            {
+                "id": f.id,
+                "category": f.category,
+                "severity": f.severity,
+                "issue": f.issue,
+                "detail": f.detail,
+                "match_type": f.match_type,
+                "confidence": f.confidence,
+                "page": f.page,
+                "snippet": f.snippet,
+                # RAG-specific grounded evidence fields
+                "reference_section": getattr(f, "reference_section", None),
+                "evidence": getattr(f, "evidence", None),
+                "suggested_correction": getattr(f, "suggested_correction", None),
+            }
+            for f in findings
+        ],
+    }
+
+
+@router.get("/{doc_id}/rag-status")
+async def get_rag_readiness(doc_id: int, db: AsyncSession = Depends(get_db)):
+    """Check whether the document and KB are ready for RAG validation."""
+    from rag.chroma_store import chroma_store
+    from rag.embedder import check_ollama_connection
+
+    doc = await db.get(Document, doc_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found.")
+
+    kb_ready = chroma_store.is_knowledge_base_ready()
+    ollama_ok, ollama_msg = check_ollama_connection()
+    doc_ready = doc.state in (DocumentState.STRUCTURED, DocumentState.VALIDATED, DocumentState.FAILED)
+
+    return {
+        "doc_id": doc_id,
+        "doc_state": doc.state,
+        "doc_ready_for_validation": doc_ready,
+        "kb_ready": kb_ready,
+        "ollama_connected": ollama_ok,
+        "ollama_message": ollama_msg,
+        "rag_validation_possible": kb_ready and ollama_ok and doc_ready,
+    }

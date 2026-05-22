@@ -7,7 +7,13 @@ aiofiles==24.1.0
 python-multipart==0.0.17
 pymupdf==1.25.5
 pdfplumber==0.11.4
-rapidfuzz==3.11.0
 pillow==11.1.0
 python-dotenv==1.0.1
 httpx==0.28.0
+
+# RAG pipeline
+chromadb==0.6.3
+ollama==0.5.1
+
+# Kept for trivial pattern-only use in section_detector
+rapidfuzz>=3.14.0
