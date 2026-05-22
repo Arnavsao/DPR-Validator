@@ -1,4 +1,5 @@
 'use client';
+import { useState } from 'react';
 import { useParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
@@ -15,14 +16,32 @@ export default function ValidationPage() {
   const { id } = useParams<{ id: string }>();
   const docId = Number(id);
 
-  const { data: doc }    = useQuery({ queryKey: ['doc', docId],        queryFn: () => api.getDocument(docId) });
-  const { data: result } = useQuery({ queryKey: ['validation', docId], queryFn: () => api.getValidationResult(docId), enabled: !!docId });
+  const { data: doc }    = useQuery({ queryKey: ['doc', docId],        queryFn: () => api.getDocument(docId), refetchInterval: 5000 });
+  const { data: result, isError: resultError, refetch: refetchResult } = useQuery({
+    queryKey: ['validation', docId],
+    queryFn: () => api.getValidationResult(docId),
+    enabled: !!docId,
+    retry: false,  // Don't retry 404s endlessly
+    refetchInterval: (query) => {
+      // If we got a result, stop polling. If error or no data, poll every 5s
+      // to catch when validation finishes
+      return query.state.data ? false : 5000;
+    },
+  });
   const { data: nodes }  = useQuery({ queryKey: ['nodes', docId],      queryFn: () => api.getNodes(docId), enabled: !!docId });
-  const { data: evidenceResp }  = useQuery({ queryKey: ['evidence', docId], queryFn: () => api.getEvidence(docId), enabled: !!docId });
+  const { data: evidenceResp }  = useQuery({
+    queryKey: ['evidence', docId],
+    queryFn: () => api.getEvidence(docId),
+    enabled: !!docId && !!result,  // Only fetch evidence when we have a validation result
+    retry: false,
+  });
   // Backend wraps findings in { run_id, findings: [...] } — extract the array
   const evidence = evidenceResp?.findings ?? [];
 
-  if (!result) return <LoadingState />;
+  // No validation result yet — show appropriate state
+  if (!result) {
+    return <NoValidationState doc={doc} docId={docId} isError={resultError} refetch={refetchResult} />;
+  }
 
   const radarData = [
     // Use backend field names (chapter_structure, chapter_completeness) with legacy fallbacks
@@ -222,6 +241,114 @@ function SeverityIcon({ severity }: { severity: string }) {
   if (severity === 'major')    return <AlertTriangle size={14} color="var(--amber)" style={{ flexShrink: 0, marginTop: 1 }} />;
   if (severity === 'info')     return <Info size={14} color="var(--text-muted)" style={{ flexShrink: 0, marginTop: 1 }} />;
   return <Info size={14} color="#60A5FA" style={{ flexShrink: 0, marginTop: 1 }} />;
+}
+
+function NoValidationState({ doc, docId, isError, refetch }: { doc: any; docId: number; isError: boolean; refetch: () => void }) {
+  const [isTriggering, setIsTriggering] = useState(false);
+
+  const handleValidate = async () => {
+    setIsTriggering(true);
+    try {
+      await api.validateDocument(docId);
+      // Start polling for results
+      setTimeout(() => refetch(), 2000);
+    } catch (err) {
+      console.error('Failed to trigger validation:', err);
+    } finally {
+      setIsTriggering(false);
+    }
+  };
+
+  const isValidating = doc?.state === 'VALIDATING';
+  const isStructured = doc?.state === 'STRUCTURED';
+  const isFailed = doc?.state === 'FAILED';
+
+  return (
+    <div style={{ maxWidth: 1100, margin: '0 auto' }}>
+      <Link href="/" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--text-muted)', textDecoration: 'none', marginBottom: 24, fontSize: 13 }}>
+        <ArrowLeft size={14} /> Dashboard
+      </Link>
+
+      <motion.div
+        initial={{ opacity: 0, scale: 0.97 }}
+        animate={{ opacity: 1, scale: 1 }}
+        className="glass"
+        style={{
+          padding: '48px', textAlign: 'center',
+          background: 'linear-gradient(135deg, rgba(10,61,145,0.15), rgba(13,21,38,0.8))',
+        }}
+      >
+        <h1 style={{ fontSize: 22, fontWeight: 800, marginBottom: 8 }}>
+          {doc?.project_name || doc?.filename || 'Document'}
+        </h1>
+
+        {isValidating && (
+          <>
+            <div style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 16 }}>
+              Validation is running... This page will update automatically.
+            </div>
+            {doc?.current_stage && (
+              <div style={{ fontSize: 13, color: 'var(--railway-blue-light)', marginBottom: 8 }}>
+                {doc.current_stage}
+              </div>
+            )}
+            {doc?.progress_percent > 0 && (
+              <div style={{ maxWidth: 300, margin: '16px auto' }}>
+                <div style={{ height: 6, borderRadius: 3, background: 'var(--surface-3)', overflow: 'hidden' }}>
+                  <div className="pulse-blue" style={{
+                    height: '100%', width: `${doc.progress_percent}%`,
+                    borderRadius: 3, background: 'linear-gradient(90deg, #1557CC, #6BA3FF)',
+                    transition: 'width 0.4s ease',
+                  }} />
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>
+                  {doc.progress_percent}% complete
+                  {doc.estimated_remaining_seconds > 0 && ` · ~${doc.estimated_remaining_seconds}s remaining`}
+                </div>
+              </div>
+            )}
+          </>
+        )}
+
+        {(isStructured || isFailed) && (
+          <>
+            <div style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 20 }}>
+              {isError
+                ? 'No validation results yet. Click below to run RAG validation.'
+                : 'Waiting for validation results...'}
+            </div>
+            {doc?.error_message && (
+              <div style={{ fontSize: 12, color: 'var(--rose)', marginBottom: 16, maxWidth: 500, margin: '0 auto 16px' }}>
+                Previous error: {doc.error_message}
+              </div>
+            )}
+            <button
+              onClick={handleValidate}
+              disabled={isTriggering}
+              style={{
+                padding: '12px 28px', borderRadius: 12,
+                background: isTriggering ? 'var(--surface-3)' : 'linear-gradient(135deg, var(--railway-blue), var(--railway-blue-light))',
+                color: 'white', fontWeight: 600, fontSize: 14,
+                border: 'none', cursor: isTriggering ? 'not-allowed' : 'pointer',
+                boxShadow: '0 4px 20px rgba(10,61,145,0.4)',
+              }}
+            >
+              {isTriggering ? 'Starting...' : '🚀 Run Validation'}
+            </button>
+          </>
+        )}
+
+        {!isValidating && !isStructured && !isFailed && (
+          <div style={{ fontSize: 14, color: 'var(--text-secondary)' }}>
+            Document is in &apos;{doc?.state || 'unknown'}&apos; state.
+            {doc?.state && ['PARSING', 'OCR', 'TABLES'].includes(doc.state) && (
+              <span> Parsing in progress — validation will start automatically when parsing completes.</span>
+            )}
+          </div>
+        )}
+      </motion.div>
+    </div>
+  );
 }
 
 function LoadingState() {

@@ -67,7 +67,9 @@ async def validate_document(
 
 async def _validate_bg(doc_id: int, mode: str = "rag"):
     from core.database import AsyncSessionLocal
+    from sqlalchemy import update as sa_update
     import logging
+    import traceback
     _log = logging.getLogger(__name__)
     async with AsyncSessionLocal() as db:
         try:
@@ -79,7 +81,23 @@ async def _validate_bg(doc_id: int, mode: str = "rag"):
             _log.info(f"Validation complete: doc={doc_id} mode={mode}")
         except Exception as e:
             await db.rollback()
-            _log.error(f"Validation failed for doc {doc_id} (mode={mode}): {e}")
+            tb = traceback.format_exc()
+            _log.error(f"Validation failed for doc {doc_id} (mode={mode}): {e}\n{tb}")
+            # Reset document state so it can be re-triggered
+            try:
+                async with AsyncSessionLocal() as db2:
+                    stmt = sa_update(Document).where(Document.id == doc_id).values(
+                        state=DocumentState.STRUCTURED,
+                        error_message=f"Validation failed: {e}",
+                        current_stage=f"Validation error: {str(e)[:100]}",
+                        progress_percent=0,
+                        estimated_remaining_seconds=0,
+                    )
+                    await db2.execute(stmt)
+                    await db2.commit()
+                    _log.info(f"Doc {doc_id} reset to STRUCTURED after validation failure.")
+            except Exception as reset_err:
+                _log.error(f"Failed to reset doc {doc_id} state: {reset_err}")
 
 
 @router.get("/{doc_id}/result")

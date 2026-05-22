@@ -305,26 +305,37 @@ async def run_rag_validation(doc_id: int, db: AsyncSession) -> Optional[Validati
         return run
 
     # ── Fetch document data ─────────────────────────────────────────────────
+    # IMPORTANT: We eagerly materialize all DB objects into plain dicts here.
+    # This prevents SQLAlchemy lazy-loading errors (greenlet_spawn) when
+    # accessing attributes later from a different thread (asyncio.to_thread).
     await _wait_if_paused(doc_id, db)
     await _update_progress(doc_id, db, 4, "Fetching document sections and pages...", 115)
     
-    # Chapter nodes
+    # Chapter nodes → plain dicts
     chapter_result = await db.execute(
         select(DocumentNode).where(
             DocumentNode.document_id == doc_id,
             DocumentNode.node_type == NodeType.CHAPTER,
         ).order_by(DocumentNode.sequence)
     )
-    chapter_nodes = chapter_result.scalars().all()
+    chapter_nodes_raw = chapter_result.scalars().all()
+    chapter_nodes = [
+        {"title": n.title, "number": n.number, "page_start": n.page_start, "sequence": n.sequence}
+        for n in chapter_nodes_raw
+    ]
 
-    # Section nodes
+    # Section nodes → plain dicts
     section_result = await db.execute(
         select(DocumentNode).where(
             DocumentNode.document_id == doc_id,
             DocumentNode.node_type.in_([NodeType.SECTION, NodeType.SUBSECTION]),
         ).order_by(DocumentNode.sequence)
     )
-    section_nodes = section_result.scalars().all()
+    section_nodes_raw = section_result.scalars().all()
+    section_nodes = [
+        {"title": n.title, "page_start": n.page_start}
+        for n in section_nodes_raw
+    ]
 
     # All pages (for text retrieval)
     page_result = await db.execute(
@@ -333,17 +344,12 @@ async def run_rag_validation(doc_id: int, db: AsyncSession) -> Optional[Validati
     all_pages = page_result.scalars().all()
     page_text_map: dict[int, str] = {p.page_number: (p.text or "") for p in all_pages}
 
-    # Tables
+    # Tables → plain dicts
     table_result = await db.execute(
         select(ExtractedTable).where(ExtractedTable.document_id == doc_id)
     )
-    all_tables = table_result.scalars().all()
-
-    detected_chapters = [
-        {"title": n.title, "number": n.number, "page": n.page_start}
-        for n in chapter_nodes
-    ]
-    detected_table_dicts = [
+    all_tables_raw = table_result.scalars().all()
+    all_tables = [
         {
             "title": t.title or "Untitled",
             "category": t.category,
@@ -351,19 +357,28 @@ async def run_rag_validation(doc_id: int, db: AsyncSession) -> Optional[Validati
             "rows": t.rows,
             "cols": t.cols,
         }
-        for t in all_tables
+        for t in all_tables_raw
+    ]
+
+    detected_chapters = [
+        {"title": n["title"], "number": n["number"], "page": n["page_start"]}
+        for n in chapter_nodes
     ]
 
     all_results: list[ValidationResult] = []
 
     # ── Task 1: Structure validation (chapter presence + order) ─────────────
+    # NOTE: All LLM and retrieval calls are synchronous (Ollama client + ChromaDB).
+    # We MUST run them via asyncio.to_thread() to avoid blocking the async
+    # SQLAlchemy greenlet context, which causes:
+    #   "greenlet_spawn has not been called; can't call await_only()"
     await _wait_if_paused(doc_id, db)
     await _update_progress(doc_id, db, 5, "Validating document chapter structure...", 110)
     logger.info("Task 1: Structure validation...")
     
-    spec_structure = retrieve_mandatory_structure()
+    spec_structure = await asyncio.to_thread(retrieve_mandatory_structure)
     if spec_structure:
-        structure_results = validate_structure(detected_chapters, spec_structure)
+        structure_results = await asyncio.to_thread(validate_structure, detected_chapters, spec_structure)
         all_results.extend(structure_results)
         pass_count  = sum(1 for r in structure_results if r.status == "PASS")
         total_count = len(structure_results)
@@ -388,13 +403,13 @@ async def run_rag_validation(doc_id: int, db: AsyncSession) -> Optional[Validati
     # SCALE: Remove the filter entirely (set ACTIVE_CHAPTER_NUMBERS = set())
     #        to validate ALL detected chapters automatically.
     #
-    def _chapter_is_active(node: DocumentNode, idx: int) -> bool:
+    def _chapter_is_active(node: dict, idx: int) -> bool:
         """Return True if this chapter should be validated in detail."""
         if not ACTIVE_CHAPTER_NUMBERS:  # empty set → validate all
             return True
         # Try matching by node sequence (1-indexed) or by title lookup
         seq_num = idx + 1  # fallback: use discovery order as chapter number
-        title_num = CHAPTER_TITLE_TO_NUMBER.get(node.title, seq_num)
+        title_num = CHAPTER_TITLE_TO_NUMBER.get(node["title"], seq_num)
         return title_num in ACTIVE_CHAPTER_NUMBERS
 
     chapters_to_validate = [
@@ -412,7 +427,7 @@ async def run_rag_validation(doc_id: int, db: AsyncSession) -> Optional[Validati
         # Pause check between chapters for high responsiveness
         await _wait_if_paused(doc_id, db)
 
-        ch_title = ch_node.title
+        ch_title = ch_node["title"]
 
         # Progress: Task 2 maps to 10%–80% of validation progress.
         # Estimate ~6 seconds per chapter for a 9b model (adjust for larger models).
@@ -431,38 +446,40 @@ async def run_rag_validation(doc_id: int, db: AsyncSession) -> Optional[Validati
 
         # Collect chapter text from its pages (start page + up to 4 following pages)
         ch_pages_text = ""
-        if ch_node.page_start:
-            for pn in range(ch_node.page_start, ch_node.page_start + 5):
+        if ch_node["page_start"]:
+            for pn in range(ch_node["page_start"], ch_node["page_start"] + 5):
                 ch_pages_text += page_text_map.get(pn, "")
 
         # Find subsections belonging to this chapter by page range
         ch_page_end = (
-            chapter_nodes[ch_idx + 1].page_start
+            chapter_nodes[ch_idx + 1]["page_start"]
             if ch_idx + 1 < len(chapter_nodes)
             else 9999
         )
         ch_sections = [
-            n.title for n in section_nodes
-            if n.page_start >= ch_node.page_start and n.page_start < ch_page_end
+            n["title"] for n in section_nodes
+            if n["page_start"] >= ch_node["page_start"] and n["page_start"] < ch_page_end
         ]
 
-        # Retrieve matching spec chunks for this chapter
-        spec_chunks = retrieve_for_chapter(
-            chapter_title=ch_title,
-            chapter_text=ch_pages_text[:400],
+        # Retrieve matching spec chunks for this chapter (sync → thread)
+        spec_chunks = await asyncio.to_thread(
+            retrieve_for_chapter,
+            ch_title,
+            ch_pages_text[:400],
         )
 
         # Route: Executive Summary gets its own dedicated validator
         if any(kw in ch_title.lower() for kw in ("executive", "summary", "salient")):
-            exec_spec = retrieve_for_chapter("Executive Summary", ch_pages_text[:400])
-            result = validate_executive_summary(ch_pages_text, exec_spec)
+            exec_spec = await asyncio.to_thread(retrieve_for_chapter, "Executive Summary", ch_pages_text[:400])
+            result = await asyncio.to_thread(validate_executive_summary, ch_pages_text, exec_spec)
         else:
-            # Generic chapter completeness check
-            result = validate_chapter(
-                chapter_title=ch_title,
-                chapter_text=ch_pages_text,
-                spec_chunks=spec_chunks,
-                section_titles=ch_sections[:10] if ch_sections else None,
+            # Generic chapter completeness check (sync → thread)
+            result = await asyncio.to_thread(
+                validate_chapter,
+                ch_title,
+                ch_pages_text,
+                spec_chunks,
+                ch_sections[:10] if ch_sections else None,
             )
 
         all_results.append(result)

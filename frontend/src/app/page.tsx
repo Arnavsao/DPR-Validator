@@ -221,7 +221,7 @@ export default function Dashboard() {
                         {new Date(doc.uploaded_at).toLocaleDateString()}
                       </td>
                       <td style={{ padding: '14px 20px' }}>
-                        <div style={{ display: 'flex', gap: 8 }}>
+                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                           {['PARSING', 'OCR', 'TABLES', 'VALIDATING'].includes(doc.state) && (
                             <PauseResumeButton doc={doc} />
                           )}
@@ -230,7 +230,7 @@ export default function Dashboard() {
                               Results
                             </Link>
                           )}
-                          {doc.state === 'STRUCTURED' && (
+                          {(doc.state === 'STRUCTURED' || doc.state === 'FAILED') && (
                             <ValidateButton docId={doc.id} />
                           )}
                           {doc.state === 'VALIDATED' && (
@@ -238,7 +238,15 @@ export default function Dashboard() {
                               Report
                             </Link>
                           )}
+                          {doc.state === 'VALIDATED' && (
+                            <RevalidateButton docId={doc.id} />
+                          )}
                         </div>
+                        {doc.error_message && (
+                          <div style={{ fontSize: 11, color: 'var(--rose)', marginTop: 6, maxWidth: 240, lineHeight: 1.3 }}>
+                            ⚠ {doc.error_message.substring(0, 120)}
+                          </div>
+                        )}
                       </td>
                     </tr>
                   ))
@@ -339,6 +347,19 @@ function PauseResumeButton({ doc }: { doc: any }) {
       }}
     >
       {buttonText}
+    </button>
+  );
+}
+
+function RevalidateButton({ docId }: { docId: number }) {
+  const { refetch } = useQuery({ queryKey: ['documents'], queryFn: api.listDocuments });
+  const handleRevalidate = async () => {
+    await api.validateDocument(docId);
+    setTimeout(() => refetch(), 1000);
+  };
+  return (
+    <button onClick={handleRevalidate} style={actionStyle('#8B5CF6')}>
+      Re-validate
     </button>
   );
 }

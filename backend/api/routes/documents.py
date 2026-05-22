@@ -74,16 +74,54 @@ async def upload_document(
 
 
 async def _parse_document_bg(doc_id: int):
-    """Background task: run the full parsing pipeline."""
+    """Background task: run the full parsing pipeline, then auto-trigger validation."""
     from core.database import AsyncSessionLocal
+    import logging
+    _log = logging.getLogger(__name__)
     async with AsyncSessionLocal() as db:
         try:
-            await run_pipeline(doc_id, db)
+            success = await run_pipeline(doc_id, db)
             await db.commit()
+            if success:
+                _log.info(f"Parsing complete for doc {doc_id}. Auto-triggering RAG validation...")
+                # Auto-trigger validation after successful parsing
+                await _auto_validate(doc_id)
         except Exception as e:
             await db.rollback()
-            import logging
-            logging.getLogger(__name__).error(f"Background parse failed for doc {doc_id}: {e}")
+            _log.error(f"Background parse failed for doc {doc_id}: {e}")
+
+
+async def _auto_validate(doc_id: int):
+    """Auto-trigger RAG validation after parsing completes."""
+    from core.database import AsyncSessionLocal
+    from validator.rag_scoring import run_rag_validation
+    from sqlalchemy import update as sa_update
+    import logging
+    import traceback
+    _log = logging.getLogger(__name__)
+    async with AsyncSessionLocal() as db:
+        try:
+            await run_rag_validation(doc_id, db)
+            await db.commit()
+            _log.info(f"Auto-validation complete for doc {doc_id}")
+        except Exception as e:
+            await db.rollback()
+            tb = traceback.format_exc()
+            _log.error(f"Auto-validation failed for doc {doc_id}: {e}\n{tb}")
+            # Reset to STRUCTURED so user can retry manually
+            try:
+                async with AsyncSessionLocal() as db2:
+                    stmt = sa_update(Document).where(Document.id == doc_id).values(
+                        state=DocumentState.STRUCTURED,
+                        error_message=f"Validation failed: {e}",
+                        current_stage=f"Validation error: {str(e)[:100]}",
+                        progress_percent=0,
+                        estimated_remaining_seconds=0,
+                    )
+                    await db2.execute(stmt)
+                    await db2.commit()
+            except Exception as reset_err:
+                _log.error(f"Failed to reset doc {doc_id} after auto-validate: {reset_err}")
 
 
 # ---------------------------------------------------------------------------

@@ -117,35 +117,32 @@ def _call_llm(
             models_to_try.append(m)
             seen.add(m)
 
+    timeout_secs = getattr(settings, 'LLM_TIMEOUT_SECS', 600)
     last_exc: Optional[Exception] = None
     for attempt_model in models_to_try:
         try:
-            logger.info(f"LLM call → model={attempt_model}")
+            logger.info(f"LLM call → model={attempt_model} (timeout={timeout_secs}s)")
             t0 = time.time()
             client = ollama.Client(
                 host=settings.OLLAMA_BASE_URL,
+                timeout=httpx.Timeout(timeout_secs, connect=30.0),
             )
-            response = client.chat(
-                model=attempt_model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user",   "content": prompt},
-                ],
-                options={
-                    "temperature": 0.0,    # deterministic — no creative answers
-                    "num_predict": 2048,
-                    "top_p": 1.0,
-                },
-                think=False,               # disable chain-of-thought for speed
-            )
-            elapsed = time.time() - t0
-            text = response["message"]["content"].strip()
-            logger.info(f"LLM response in {elapsed:.1f}s ({len(text)} chars)")
-            return text
-        except TypeError:
-            # Older ollama SDK doesn't support think= param; retry without it
             try:
-                client = ollama.Client(host=settings.OLLAMA_BASE_URL)
+                response = client.chat(
+                    model=attempt_model,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user",   "content": prompt},
+                    ],
+                    options={
+                        "temperature": 0.0,    # deterministic — no creative answers
+                        "num_predict": 2048,
+                        "top_p": 1.0,
+                    },
+                    think=False,               # disable chain-of-thought for speed
+                )
+            except TypeError:
+                # Older ollama SDK doesn't support think= param; retry without it
                 response = client.chat(
                     model=attempt_model,
                     messages=[
@@ -154,13 +151,14 @@ def _call_llm(
                     ],
                     options={"temperature": 0.0, "num_predict": 2048},
                 )
-                return response["message"]["content"].strip()
-            except Exception as e:
-                last_exc = e
-                logger.warning(f"Model '{attempt_model}' failed: {e}")
+            elapsed = time.time() - t0
+            text = response["message"]["content"].strip()
+            logger.info(f"LLM response in {elapsed:.1f}s ({len(text)} chars)")
+            return text
         except Exception as e:
+            elapsed = time.time() - t0 if 't0' in dir() else 0
             last_exc = e
-            logger.warning(f"Model '{attempt_model}' failed: {e}")
+            logger.warning(f"Model '{attempt_model}' failed after {elapsed:.1f}s: {e}")
 
     # If all local Ollama models fail, try Gemini fallback
     if settings.GEMINI_API_KEY:
