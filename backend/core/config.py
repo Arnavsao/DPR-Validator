@@ -37,7 +37,7 @@ class Settings:
     MAX_UPLOAD_SIZE_BYTES: int = MAX_UPLOAD_SIZE_MB * 1024 * 1024
     
     # Parsing
-    OCR_TEXT_THRESHOLD: int = 50  # words below this triggers OCR
+    OCR_TEXT_THRESHOLD: int = int(os.getenv("OCR_TEXT_THRESHOLD", "20"))  # words below this triggers OCR
     FUZZY_MATCH_THRESHOLD: int = 85  # RapidFuzz score threshold
     
     # CORS

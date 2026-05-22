@@ -3,10 +3,11 @@ Parsing pipeline — orchestrates all parsing steps for a DPR document.
 Transitions the document through states: PARSING → OCR → TABLES → STRUCTURED.
 """
 from __future__ import annotations
-import json
+import asyncio
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
@@ -24,11 +25,24 @@ from parser.metadata_extractor import extract_metadata
 
 logger = logging.getLogger(__name__)
 
+# Dedicated thread pool for blocking parser/OCR work
+# (keeps FastAPI's event loop free to serve other requests)
+_PARSE_POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix="dpr-parse")
+
+
+async def _in_thread(func, *args):
+    """Run a synchronous, blocking function in the dedicated thread pool."""
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(_PARSE_POOL, func, *args)
+
 
 async def run_pipeline(doc_id: int, db: AsyncSession) -> bool:
     """
     Full parsing pipeline for a document.
     Returns True on success, False on failure.
+
+    All CPU-bound / blocking I/O calls are offloaded to a thread pool via
+    run_in_executor so they never block the async event loop.
     """
     doc = await db.get(Document, doc_id)
     if not doc:
@@ -39,11 +53,13 @@ async def run_pipeline(doc_id: int, db: AsyncSession) -> bool:
     logger.info(f"Starting pipeline for doc {doc_id}: {doc.original_name}")
 
     try:
-        # ---- STEP 1: PDF text extraction ----
+        # ---- STEP 1: PDF text extraction (blocking — run in thread) ----
         await _set_state(doc, DocumentState.PARSING, db)
 
-        pages_raw = extract_pages(pdf_path, ocr_threshold=settings.OCR_TEXT_THRESHOLD)
-        pdf_meta = get_pdf_metadata(pdf_path)
+        pages_raw, pdf_meta = await asyncio.gather(
+            _in_thread(extract_pages, pdf_path, settings.OCR_TEXT_THRESHOLD),
+            _in_thread(get_pdf_metadata, pdf_path),
+        )
 
         # Update page count
         doc.page_count = len(pages_raw)
@@ -70,16 +86,18 @@ async def run_pipeline(doc_id: int, db: AsyncSession) -> bool:
 
         await db.flush()
 
-        # ---- STEP 2: OCR fallback ----
+        # ---- STEP 2: OCR fallback (blocking — run each page in thread) ----
         await _set_state(doc, DocumentState.OCR, db)
 
         ocr_pages = [p for p in pages_raw if p.needs_ocr]
         if ocr_pages:
-            logger.info(f"Running OCR on {len(ocr_pages)} pages.")
+            logger.info(f"Running OCR on {len(ocr_pages)} pages (in thread pool).")
             for pd in ocr_pages:
                 try:
-                    img_bytes = get_page_image(pdf_path, pd.page_number)
-                    ocr_text = ocr_page_bytes(img_bytes)
+                    # Both get_page_image and ocr_page_bytes are synchronous —
+                    # run them in the executor so the event loop stays free.
+                    img_bytes = await _in_thread(get_page_image, pdf_path, pd.page_number)
+                    ocr_text = await _in_thread(ocr_page_bytes, img_bytes)
                     if ocr_text.strip():
                         # Update the page dict and DB entry
                         page_dicts[pd.page_number - 1]["text"] = ocr_text
@@ -100,10 +118,10 @@ async def run_pipeline(doc_id: int, db: AsyncSession) -> bool:
         else:
             logger.info("No OCR needed.")
 
-        # ---- STEP 3: Table extraction ----
+        # ---- STEP 3: Table extraction (blocking — run in thread) ----
         await _set_state(doc, DocumentState.TABLES, db)
 
-        tables = extract_tables_from_pdf(pdf_path)
+        tables = await _in_thread(extract_tables_from_pdf, pdf_path)
         for tbl in tables:
             tbl_obj = ExtractedTable(
                 document_id=doc_id,
@@ -121,14 +139,14 @@ async def run_pipeline(doc_id: int, db: AsyncSession) -> bool:
         await db.flush()
         logger.info(f"Saved {len(tables)} tables for doc {doc_id}.")
 
-        # ---- STEP 4: Structure detection + hierarchy build ----
+        # ---- STEP 4: Structure detection + hierarchy build (blocking — run in thread) ----
         await _set_state(doc, DocumentState.STRUCTURED, db)
 
-        detected_nodes = detect_sections(page_dicts)
+        detected_nodes = await _in_thread(detect_sections, page_dicts)
         await _build_hierarchy(doc_id, detected_nodes, db)
 
-        # ---- STEP 5: Metadata extraction ----
-        meta = extract_metadata(page_dicts)
+        # ---- STEP 5: Metadata extraction (blocking — run in thread) ----
+        meta = await _in_thread(extract_metadata, page_dicts)
         doc.project_name  = meta.project_name
         doc.project_route = meta.project_route
         doc.division      = meta.division
