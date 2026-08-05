@@ -134,60 +134,57 @@ def _compute_grade(score: float) -> str:
 
 def _compute_rag_score(results: list[ValidationResult]) -> dict:
     """
-    Compute weighted validation score from RAG results.
+    Compute validation score across all 18 mandatory DPR chapters.
 
-    Score = weighted average of per-chapter confidence-adjusted outcomes.
-    PASS = 100pts, WARNING = 50pts, FAIL = 0pts, UNKNOWN = 30pts
+    Each mandatory chapter contributes equally (1/18) to the overall score.
+      - Chapters validated by LLM: PASS=100, WARNING=50, UNKNOWN=30, FAIL=0
+      - Chapters missing from the uploaded document: auto-FAIL = 0
+
+    Example: uploading only Ch.1 that scores 90 → overall = 90/18 = 5.0
+    This gives an honest completeness signal: N/18 chapters submitted.
     """
-    if not results:
-        return {"overall": 0.0, "chapter": 0.0, "table": 0.0, "structure": 0.0}
-
+    MANDATORY_TOTAL = 18
     status_scores = {"PASS": 100.0, "WARNING": 50.0, "FAIL": 0.0, "UNKNOWN": 30.0}
 
-    def _group_score(group: list[ValidationResult]) -> float:
-        if not group:
-            return 0.0
-        total = 0.0
-        weight_sum = 0.0
-        for r in group:
-            base = status_scores.get(r.status, 30.0)
-            # Weight by confidence (high-confidence results count more)
-            w = max(0.1, r.confidence)
-            total += base * w
-            weight_sum += w
-        return round(total / weight_sum, 2) if weight_sum > 0 else 0.0
+    if not results:
+        return {
+            "overall": 0.0, "chapter": 0.0,
+            "chapters_found": 0, "chapters_total": MANDATORY_TOTAL,
+        }
 
-    structure_results = [r for r in results if r.category == "structure"]
-    chapter_results   = [r for r in results if r.category == "chapter"]
-    table_results     = [r for r in results if r.category == "table"]
-    dep_results       = [r for r in results if r.category == "dependency"]
-    all_non_info      = [r for r in results if r.status != "PASS"]
+    chapter_results = [r for r in results if r.category == "chapter"]
 
-    structure_score = _group_score(structure_results)
-    chapter_score   = _group_score(chapter_results)
-    table_score     = _group_score(table_results)
-    dep_score       = _group_score(dep_results) if dep_results else 100.0
+    # Sum raw scores across all chapter results
+    # (stubs for missing chapters already score 0 via FAIL status)
+    total_chapter_score = sum(status_scores.get(r.status, 30.0) for r in chapter_results)
 
-    # Weighted overall (structure presence is most critical)
-    overall = (
-        structure_score * 0.40 +
-        chapter_score   * 0.35 +
-        table_score     * 0.15 +
-        dep_score       * 0.10
+    # Denominator is always 18 — missing chapters stay as 0/18 slots
+    padded_count = max(len(chapter_results), MANDATORY_TOTAL)
+    overall = round(total_chapter_score / padded_count, 2)
+
+    # chapters_found = chapters actually present in the document (not stubs)
+    _NOT_FOUND_MARKER = "not found in uploaded document"
+    chapters_found = sum(
+        1 for r in chapter_results
+        if _NOT_FOUND_MARKER not in r.reason.lower()
     )
-    overall = round(overall, 2)
 
-    chapters_passed = sum(1 for r in structure_results if r.status == "PASS")
-    chapters_total  = len(structure_results)
+    # Average quality score for chapters that WERE submitted and validated
+    validated = [
+        r for r in chapter_results
+        if _NOT_FOUND_MARKER not in r.reason.lower()
+    ]
+    validated_avg = round(
+        sum(status_scores.get(r.status, 30.0) for r in validated)
+        / max(len(validated), 1),
+        2,
+    )
 
     return {
-        "overall":   overall,
-        "structure": structure_score,
-        "chapter":   chapter_score,
-        "table":     table_score,
-        "dependency": dep_score,
-        "chapters_found": chapters_passed,
-        "chapters_total": chapters_total,
+        "overall":        overall,
+        "chapter":        validated_avg,   # quality of chapters that ARE present
+        "chapters_found": chapters_found,
+        "chapters_total": MANDATORY_TOTAL,
     }
 
 
@@ -367,31 +364,16 @@ async def run_rag_validation(doc_id: int, db: AsyncSession) -> Optional[Validati
 
     all_results: list[ValidationResult] = []
 
-    # ── Task 1: Structure validation (chapter presence + order) ─────────────
-    # NOTE: All LLM and retrieval calls are synchronous (Ollama client + ChromaDB).
-    # We MUST run them via asyncio.to_thread() to avoid blocking the async
-    # SQLAlchemy greenlet context, which causes:
-    #   "greenlet_spawn has not been called; can't call await_only()"
+    # ── Task 1: Structure LLM call — DISABLED (chapter-by-chapter scoring mode) ─
+    # The structure LLM call (validate_structure) is removed.
+    # Missing chapters are auto-marked FAIL as stubs after Task 2.
+    # This reduces validation from 2 LLM calls → 1 LLM call for Ch.1 pilot.
     await _wait_if_paused(doc_id, db)
-    await _update_progress(doc_id, db, 5, "Validating document chapter structure...", 110)
-    logger.info("Task 1: Structure validation...")
-    
-    spec_structure = await asyncio.to_thread(retrieve_mandatory_structure)
-    if spec_structure:
-        structure_results = await asyncio.to_thread(validate_structure, detected_chapters, spec_structure)
-        all_results.extend(structure_results)
-        pass_count  = sum(1 for r in structure_results if r.status == "PASS")
-        total_count = len(structure_results)
-        logger.info(f"Structure: {pass_count}/{total_count} chapters passed.")
-    else:
-        logger.warning("No spec chunks for structure — KB may be empty.")
-        all_results.append(ValidationResult(
-            chapter="Structure",
-            category="structure",
-            status="UNKNOWN",
-            reason="Knowledge base spec chunks not available.",
-            confidence=0.0,
-        ))
+    await _update_progress(doc_id, db, 5, "Checking document chapters...", 30)
+    logger.info(
+        f"Task 1 skipped (chapter-scoring mode active). "
+        f"{len(chapter_nodes)} chapter(s) detected in uploaded document."
+    )
 
     # ── Task 2: Per-chapter completeness ────────────────────────────────────
     #
@@ -485,6 +467,45 @@ async def run_rag_validation(doc_id: int, db: AsyncSession) -> Optional[Validati
         all_results.append(result)
         logger.info(f"  {ch_title}: {result.status} (conf={result.confidence:.2f})")
 
+    # ── Auto-stubs for all 18 mandatory chapters NOT present in the document ──
+    # No LLM calls — these FAIL stubs are generated instantly.
+    # They ensure the overall score reflects N/18 chapter completeness.
+    _detected_lower = {n["title"].lower() for n in chapter_nodes}
+    _validated_lower = {r.chapter.lower() for r in all_results if r.category == "chapter"}
+
+    for ch_title, ch_num in sorted(CHAPTER_TITLE_TO_NUMBER.items(), key=lambda x: x[1]):
+        ch_lower = ch_title.lower()
+        # Check if this mandatory chapter was found in the uploaded document
+        _in_doc = any(ch_lower in dt or dt in ch_lower for dt in _detected_lower)
+        _already_validated = any(ch_lower in vt or vt in ch_lower for vt in _validated_lower)
+
+        if _already_validated:
+            continue  # Already processed by LLM — skip
+        elif _in_doc:
+            # Detected in document but NOT in the active LLM scope — mark as detected/unvalidated
+            all_results.append(ValidationResult(
+                chapter=ch_title,
+                category="chapter",
+                status="UNKNOWN",
+                reason="Chapter detected in document but not yet validated (outside active scope).",
+                confidence=0.5,
+                reference_section=f"Vol-I, Chapter {ch_num}",
+            ))
+            logger.info(f"  Ch.{ch_num} {ch_title}: UNKNOWN (in document, not in active scope)")
+        else:
+            # Not in document at all — auto FAIL stub, zero LLM calls
+            all_results.append(ValidationResult(
+                chapter=ch_title,
+                category="chapter",
+                status="FAIL",
+                reason="Not found in uploaded document.",
+                confidence=1.0,
+                missing_items=[f"Chapter {ch_num}: {ch_title}"],
+                reference_section=f"Vol-I, Chapter {ch_num}",
+                suggested_correction=f"Add Chapter {ch_num}: {ch_title} to the DPR.",
+            ))
+            logger.info(f"  Ch.{ch_num} {ch_title}: FAIL (not in document — no LLM call)")
+
     # ── Task 3: Table validation ──────────────────────────────────────────────
     # PILOT: Skipped — tables are scattered across many chapters (2, 4, 6, 15–18).
     # Running table validation only makes sense once those chapters are in scope.
@@ -555,7 +576,7 @@ async def run_rag_validation(doc_id: int, db: AsyncSession) -> Optional[Validati
         table_score=round(scores.get("table", 0), 2),
         grade=grade,
         chapters_found=scores["chapters_found"],
-        chapters_total=scores["chapters_total"],
+        chapters_total=18,   # always 18 — the mandatory DPR chapter count
         tables_found=len(all_tables),
         validation_mode="rag",
     )

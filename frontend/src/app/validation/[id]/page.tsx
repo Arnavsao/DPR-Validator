@@ -16,7 +16,16 @@ export default function ValidationPage() {
   const { id } = useParams<{ id: string }>();
   const docId = Number(id);
 
-  const { data: doc }    = useQuery({ queryKey: ['doc', docId],        queryFn: () => api.getDocument(docId), refetchInterval: 5000 });
+  const { data: doc } = useQuery({
+    queryKey: ['doc', docId],
+    queryFn: () => api.getDocument(docId),
+    // Stop polling once document reaches a terminal state
+    refetchInterval: (query) => {
+      const d = query.state.data as typeof doc;
+      if (!d) return 3000;
+      return ['VALIDATED', 'FAILED'].includes(d.state) ? false : 3000;
+    },
+  });
   const { data: result, isError: resultError, refetch: refetchResult } = useQuery({
     queryKey: ['validation', docId],
     queryFn: () => api.getValidationResult(docId),

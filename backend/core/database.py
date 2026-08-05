@@ -13,7 +13,7 @@ settings.STORAGE_DIR.mkdir(parents=True, exist_ok=True)
 
 engine = create_async_engine(
     settings.DATABASE_URL,
-    echo=settings.DEBUG,
+    echo=False,  # Disable SQL logging (was settings.DEBUG — extremely noisy)
     connect_args={"check_same_thread": False} if "sqlite" in settings.DATABASE_URL else {},
 )
 

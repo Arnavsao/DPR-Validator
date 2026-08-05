@@ -20,6 +20,29 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# ── Silence noisy third-party loggers ─────────────────────────────────────
+# pdfminer logs every single PDF token at DEBUG level (thousands per page).
+# pdfplumber, httpcore, httpx, chromadb all add heavy noise too.
+# Force them to WARNING so only our app's logs are visible.
+for _noisy in (
+    "pdfminer", "pdfminer.psparser", "pdfminer.pdfparser",
+    "pdfminer.pdfinterp", "pdfminer.converter", "pdfminer.cmapdb",
+    "pdfminer.pdfpage", "pdfminer.pdfdocument", "pdfminer.pdftypes",
+    "pdfplumber", "pdfplumber.table",
+    "httpcore", "httpcore.connection", "httpcore.http11",
+    "httpx", "httpx._client",
+    "chromadb", "chromadb.segment",
+    "PIL", "PIL.PngImagePlugin",
+    "easyocr",
+    "urllib3", "urllib3.connectionpool",
+    "charset_normalizer",
+    "multipart",
+    "aiosqlite",
+    "sqlalchemy.engine", "sqlalchemy.engine.Engine",
+    "sqlalchemy.pool",
+):
+    logging.getLogger(_noisy).setLevel(logging.WARNING)
+
 
 # ---------------------------------------------------------------------------
 # Lifespan

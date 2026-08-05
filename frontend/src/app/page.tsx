@@ -11,7 +11,16 @@ export default function Dashboard() {
   const { data: docs = [], isLoading } = useQuery({
     queryKey: ['documents'],
     queryFn: api.listDocuments,
-    refetchInterval: 5000,
+    // Only poll while at least one document is actively processing.
+    // Stop as soon as everything is in a terminal state.
+    refetchInterval: (query) => {
+      const list = query.state.data as typeof docs;
+      if (!list || list.length === 0) return 5000;
+      const hasActive = list.some(
+        (d) => !['VALIDATED', 'FAILED'].includes(d.state)
+      );
+      return hasActive ? 3000 : false;
+    },
   });
 
   const validated = docs.filter((d) => d.state === 'VALIDATED');

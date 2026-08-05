@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 # Dedicated thread pool for blocking parser/OCR work
 # (keeps FastAPI's event loop free to serve other requests)
-_PARSE_POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix="dpr-parse")
+_PARSE_POOL = ThreadPoolExecutor(max_workers=4, thread_name_prefix="dpr-parse")
 
 
 async def _in_thread(func, *args):
@@ -154,54 +154,53 @@ async def run_pipeline(doc_id: int, db: AsyncSession) -> bool:
         # Check pause state before OCR
         await _wait_if_paused(doc_id, db)
 
-        # ---- STEP 2: OCR fallback (blocking — run each page in thread) ----
+        # ---- STEP 2: OCR fallback (PARALLEL — run pages concurrently) ----
         await _set_state(doc, DocumentState.OCR, db)
 
         ocr_pages = [p for p in pages_raw if p.needs_ocr]
         total_ocr_pages = len(ocr_pages)
-        
-        if ocr_pages:
-            logger.info(f"Running OCR on {total_ocr_pages} pages (in thread pool).")
-            # Calculate initial time estimate for OCR (approx ~3s per page)
-            ocr_est_remaining = total_ocr_pages * 3
-            await _update_progress(doc_id, db, 15, f"Running OCR on {total_ocr_pages} pages...", ocr_est_remaining + 20)
-            
-            for idx, pd in enumerate(ocr_pages):
-                # Check pause state between pages for high responsiveness
-                await _wait_if_paused(doc_id, db)
-                
-                try:
-                    # Both get_page_image and ocr_page_bytes are synchronous —
-                    # run them in the executor so the event loop stays free.
-                    img_bytes = await _in_thread(get_page_image, pdf_path, pd.page_number)
-                    ocr_text = await _in_thread(ocr_page_bytes, img_bytes)
-                    if ocr_text.strip():
-                        # Update the page dict and DB entry
-                        page_dicts[pd.page_number - 1]["text"] = ocr_text
-                        # Update DB row
-                        stmt = (
-                            update(Page)
-                            .where(
-                                Page.document_id == doc_id,
-                                Page.page_number == pd.page_number,
-                            )
-                            .values(text=ocr_text, is_ocr=True, word_count=len(ocr_text.split()))
-                        )
-                        await db.execute(stmt)
-                except Exception as e:
-                    logger.warning(f"OCR failed for page {pd.page_number}: {e}")
-                
-                # Update progress per page
-                ocr_percent = 15 + int(((idx + 1) / total_ocr_pages) * 45) # OCR is up to 60% of parsing
-                ocr_est_remaining = max(1, (total_ocr_pages - (idx + 1)) * 3)
-                await _update_progress(
-                    doc_id, 
-                    db, 
-                    ocr_percent, 
-                    f"OCR running on page {pd.page_number} ({idx + 1}/{total_ocr_pages})...", 
-                    ocr_est_remaining + 15
-                )
 
+        if ocr_pages:
+            logger.info(f"Running OCR on {total_ocr_pages} pages (parallel, max 4 concurrent).")
+            ocr_est_remaining = max(1, (total_ocr_pages // 4 + 1) * 3)
+            await _update_progress(doc_id, db, 15, f"Running OCR on {total_ocr_pages} pages...", ocr_est_remaining + 10)
+
+            # Semaphore limits concurrent OCR to avoid memory spikes
+            _ocr_sem = asyncio.Semaphore(4)
+            _ocr_done = 0
+
+            async def _ocr_one_page(pd):
+                nonlocal _ocr_done
+                async with _ocr_sem:
+                    try:
+                        img_bytes = await _in_thread(get_page_image, pdf_path, pd.page_number)
+                        ocr_text = await _in_thread(ocr_page_bytes, img_bytes)
+                        if ocr_text.strip():
+                            page_dicts[pd.page_number - 1]["text"] = ocr_text
+                            stmt = (
+                                update(Page)
+                                .where(
+                                    Page.document_id == doc_id,
+                                    Page.page_number == pd.page_number,
+                                )
+                                .values(text=ocr_text, is_ocr=True, word_count=len(ocr_text.split()))
+                            )
+                            await db.execute(stmt)
+                    except Exception as e:
+                        logger.warning(f"OCR failed for page {pd.page_number}: {e}")
+                    _ocr_done += 1
+                    if _ocr_done % 5 == 0 or _ocr_done == total_ocr_pages:
+                        pct = 15 + int((_ocr_done / total_ocr_pages) * 45)
+                        remaining = max(1, ((total_ocr_pages - _ocr_done) // 4 + 1) * 3)
+                        await _update_progress(
+                            doc_id, db, pct,
+                            f"OCR: {_ocr_done}/{total_ocr_pages} pages done...",
+                            remaining + 5,
+                        )
+
+            # Check pause before starting batch
+            await _wait_if_paused(doc_id, db)
+            await asyncio.gather(*[_ocr_one_page(pd) for pd in ocr_pages])
             await db.commit()
         else:
             logger.info("No OCR needed.")
@@ -280,6 +279,9 @@ async def _build_hierarchy(doc_id: int, nodes: list[DetectedNode], db: AsyncSess
     Build the document_nodes hierarchy tree from detected sections.
     Creates a root DOCUMENT node, then assigns chapters as children,
     sections as chapter children, etc.
+
+    Uses flush() (not commit()) inside the loop to get auto-generated IDs
+    without writing 100+ individual transactions. Single commit at the end.
     """
     # Create root document node
     root = DocumentNode(
@@ -293,22 +295,23 @@ async def _build_hierarchy(doc_id: int, nodes: list[DetectedNode], db: AsyncSess
         sequence=0,
     )
     db.add(root)
-    await db.commit()  # get root.id
+    await db.flush()  # get root.id without committing transaction
 
     chapter_node: DocumentNode | None = None
     section_node: DocumentNode | None = None
     seq = 0
 
+    ntype_map = {
+        "CHAPTER":    NodeType.CHAPTER,
+        "SECTION":    NodeType.SECTION,
+        "SUBSECTION": NodeType.SUBSECTION,
+        "ANNEXURE":   NodeType.ANNEXURE,
+        "TABLE":      NodeType.TABLE,
+        "FIGURE":     NodeType.FIGURE,
+    }
+
     for dn in nodes:
         seq += 1
-        ntype_map = {
-            "CHAPTER":    NodeType.CHAPTER,
-            "SECTION":    NodeType.SECTION,
-            "SUBSECTION": NodeType.SUBSECTION,
-            "ANNEXURE":   NodeType.ANNEXURE,
-            "TABLE":      NodeType.TABLE,
-            "FIGURE":     NodeType.FIGURE,
-        }
         node_type = ntype_map.get(dn.node_type, NodeType.SECTION)
 
         if dn.node_type == "CHAPTER":
@@ -335,11 +338,14 @@ async def _build_hierarchy(doc_id: int, nodes: list[DetectedNode], db: AsyncSess
             sequence=seq,
         )
         db.add(new_node)
-        await db.commit()  # get new_node.id
+        await db.flush()  # get new_node.id (no disk write, stays in transaction)
 
         if dn.node_type == "CHAPTER":
             chapter_node = new_node
         elif dn.node_type == "SECTION":
             section_node = new_node
 
-    logger.info(f"Built hierarchy: {seq} nodes for doc {doc_id}.")
+    # Single commit for all nodes at once
+    await db.commit()
+    logger.info(f"Built hierarchy: {seq} nodes for doc {doc_id} (single transaction).")
+
