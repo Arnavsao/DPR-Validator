@@ -214,6 +214,18 @@ export interface CompareResult {
   }>;
 }
 
+export interface ChapterResult {
+  number: number;
+  title: string;
+  status: 'PASS' | 'FAIL' | 'WARNING' | 'UNKNOWN';
+  score: number;
+  confidence: number;
+  detail: string;
+  reference_section: string;
+  suggested_correction: string;
+  snippet: string;
+}
+
 export interface FullReport {
   generated_at: string;
   document: {
@@ -239,6 +251,7 @@ export interface FullReport {
     tables_found: number;
     scores: Record<string, number>;
   };
+  chapter_results?: ChapterResult[];
   chapters_detected: Array<{ number: string; title: string; page_start: number }>;
   tables_summary: { total: number; by_category: Record<string, number> };
   findings: Finding[];

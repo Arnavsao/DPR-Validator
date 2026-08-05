@@ -13,10 +13,11 @@ export default function EvidencePage() {
   const docId = Number(id);
   const [selected, setSelected] = useState<Finding | null>(null);
 
-  const { data: doc }    = useQuery({ queryKey: ['doc', docId],      queryFn: () => api.getDocument(docId) });
-  const { data: evidence = [] } = useQuery({ queryKey: ['evidence', docId], queryFn: () => api.getEvidence(docId) });
+  const { data: doc } = useQuery({ queryKey: ['doc', docId], queryFn: () => api.getDocument(docId) });
+  const { data: evidenceData } = useQuery({ queryKey: ['evidence', docId], queryFn: () => api.getEvidence(docId) });
+  const findings = evidenceData?.findings || [];
 
-  const sorted = [...evidence].sort((a, b) => {
+  const sorted = [...findings].sort((a, b) => {
     const order = { critical: 0, major: 1, minor: 2, info: 3 };
     return (order[a.severity as keyof typeof order] ?? 3) - (order[b.severity as keyof typeof order] ?? 3);
   });
@@ -30,7 +31,7 @@ export default function EvidencePage() {
       <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} style={{ marginBottom: 28 }}>
         <h1 style={{ fontSize: 24, fontWeight: 800, marginBottom: 4 }}>Evidence Viewer</h1>
         <p style={{ color: 'var(--text-secondary)', fontSize: 13 }}>
-          {doc?.project_name || doc?.filename} · {evidence.length} findings
+          {doc?.project_name || doc?.filename} · {findings.length} findings
         </p>
       </motion.div>
 
@@ -38,10 +39,10 @@ export default function EvidencePage() {
         {/* Left: Findings list */}
         <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} className="glass" style={{ padding: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
           <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)' }}>
-            <h3 style={{ fontWeight: 700, fontSize: 14 }}>Findings ({evidence.length})</h3>
+            <h3 style={{ fontWeight: 700, fontSize: 14 }}>Findings ({findings.length})</h3>
             <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
               {['critical', 'major', 'info'].map((sev) => {
-                const count = evidence.filter((f) => f.severity === sev).length;
+                const count = findings.filter((f) => f.severity === sev).length;
                 return count > 0 ? (
                   <span key={sev} style={{ fontSize: 11, padding: '3px 9px', borderRadius: 100, fontWeight: 600,
                     background: sev === 'critical' ? 'var(--rose-dim)' : sev === 'major' ? 'var(--amber-dim)' : 'var(--surface-3)',

@@ -4,7 +4,7 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ─── Design Tokens ─── */
+/* ─── Design Tokens (Dark Theme Default) ─── */
 :root {
   --railway-blue:       #0A3D91;
   --railway-blue-light: #1557CC;
@@ -19,11 +19,53 @@
   --surface-1:          #0D1526;
   --surface-2:          #111D35;
   --surface-3:          #172447;
+  --sidebar-bg:         rgba(9, 14, 26, 0.95);
   --border:             #1E2F52;
   --border-light:       #253560;
   --text-primary:       #E8EEF8;
   --text-secondary:     #8B9BBF;
   --text-muted:         #4A5878;
+  --glass-bg:           rgba(13, 21, 38, 0.7);
+  --glass-sm-bg:        rgba(17, 29, 53, 0.8);
+  --gradient-radial-1:  rgba(10,61,145,0.15);
+  --gradient-radial-2:  rgba(245,158,11,0.06);
+  --shadow-glow:        0 0 24px rgba(10, 61, 145, 0.3);
+  --active-nav-color:   #6BA3FF;
+  --table-header-bg:    rgba(17, 29, 53, 0.6);
+  --card-shadow:        0 8px 32px rgba(0, 0, 0, 0.37);
+  color-scheme: dark;
+}
+
+/* ─── Light Theme Overrides ─── */
+[data-theme="light"] {
+  --railway-blue:       #0A3D91;
+  --railway-blue-light: #1D4ED8;
+  --railway-blue-dim:   #1D4ED815;
+  --amber:              #D97706;
+  --amber-dim:          #D9770618;
+  --emerald:            #059669;
+  --emerald-dim:        #05966918;
+  --rose:               #E11D48;
+  --rose-dim:           #E11D4818;
+  --surface-0:          #F8FAFC;
+  --surface-1:          #FFFFFF;
+  --surface-2:          #F1F5F9;
+  --surface-3:          #E2E8F0;
+  --sidebar-bg:         #FFFFFF;
+  --border:             #E2E8F0;
+  --border-light:       #CBD5E1;
+  --text-primary:       #0F172A;
+  --text-secondary:     #475569;
+  --text-muted:         #64748B;
+  --glass-bg:           rgba(255, 255, 255, 0.85);
+  --glass-sm-bg:        rgba(248, 250, 252, 0.9);
+  --gradient-radial-1:  rgba(29,78,216,0.06);
+  --gradient-radial-2:  rgba(217,119,6,0.04);
+  --shadow-glow:        0 4px 20px rgba(29, 78, 216, 0.12);
+  --active-nav-color:   #1D4ED8;
+  --table-header-bg:    #F1F5F9;
+  --card-shadow:        0 4px 20px rgba(0, 0, 0, 0.05);
+  color-scheme: light;
 }
 
 /* ─── Base ─── */
@@ -37,6 +79,7 @@ html, body {
   line-height: 1.6;
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
+  transition: background-color 0.25s ease, color 0.25s ease;
 }
 
 /* ─── Scrollbar ─── */
@@ -47,26 +90,33 @@ html, body {
 
 /* ─── Glass Cards ─── */
 .glass {
-  background: rgba(13, 21, 38, 0.7);
+  background: var(--glass-bg);
   backdrop-filter: blur(16px) saturate(1.4);
   -webkit-backdrop-filter: blur(16px) saturate(1.4);
   border: 1px solid var(--border);
   border-radius: 16px;
+  box-shadow: var(--card-shadow);
+  transition: background-color 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
 }
 
 .glass-sm {
-  background: rgba(17, 29, 53, 0.8);
+  background: var(--glass-sm-bg);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border: 1px solid var(--border);
   border-radius: 12px;
+  transition: background-color 0.25s ease, border-color 0.25s ease;
 }
 
 /* ─── Grade Badges ─── */
-.grade-gold       { color: #FFD700; background: rgba(255, 215, 0, 0.12); border: 1px solid rgba(255, 215, 0, 0.3); }
+.grade-gold       { color: #D97706; background: rgba(217, 119, 6, 0.12); border: 1px solid rgba(217, 119, 6, 0.3); }
+[data-theme="dark"] .grade-gold { color: #FFD700; background: rgba(255, 215, 0, 0.12); border: 1px solid rgba(255, 215, 0, 0.3); }
+
 .grade-acceptable { color: var(--emerald); background: var(--emerald-dim); border: 1px solid rgba(16,185,129,0.3); }
 .grade-partial    { color: var(--amber);   background: var(--amber-dim);   border: 1px solid rgba(245,158,11,0.3); }
-.grade-legacy     { color: #FB923C;        background: rgba(251,146,60,0.12); border: 1px solid rgba(251,146,60,0.3); }
+.grade-legacy     { color: #EA580C;        background: rgba(234,88,12,0.12); border: 1px solid rgba(234,88,12,0.3); }
+[data-theme="dark"] .grade-legacy { color: #FB923C; background: rgba(251,146,60,0.12); border: 1px solid rgba(251,146,60,0.3); }
+
 .grade-invalid    { color: var(--rose);    background: var(--rose-dim);    border: 1px solid rgba(244,63,94,0.3); }
 
 /* ─── State Badges ─── */
@@ -75,17 +125,17 @@ html, body {
   padding: 3px 10px; border-radius: 100px;
   font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
 }
-.state-uploaded   { background: rgba(139,155,191,0.15); color: var(--text-secondary); border: 1px solid var(--border); }
-.state-parsing, .state-ocr, .state-tables, .state-validating { background: rgba(21,87,204,0.2); color: #6BA3FF; border: 1px solid rgba(21,87,204,0.4); }
-.state-structured { background: rgba(245,158,11,0.15); color: var(--amber); border: 1px solid rgba(245,158,11,0.3); }
-.state-validated  { background: var(--emerald-dim); color: var(--emerald); border: 1px solid rgba(16,185,129,0.3); }
-.state-failed     { background: var(--rose-dim); color: var(--rose); border: 1px solid rgba(244,63,94,0.3); }
-.state-paused     { background: rgba(245,158,11,0.15); color: var(--amber); border: 1px solid rgba(245,158,11,0.3); }
+.state-uploaded   { background: var(--surface-2); color: var(--text-secondary); border: 1px solid var(--border); }
+.state-parsing, .state-ocr, .state-tables, .state-validating { background: var(--railway-blue-dim); color: var(--railway-blue-light); border: 1px solid var(--border-light); }
+.state-structured { background: var(--amber-dim); color: var(--amber); border: 1px solid var(--border); }
+.state-validated  { background: var(--emerald-dim); color: var(--emerald); border: 1px solid var(--border); }
+.state-failed     { background: var(--rose-dim); color: var(--rose); border: 1px solid var(--border); }
+.state-paused     { background: var(--amber-dim); color: var(--amber); border: 1px solid var(--border); }
 
 /* ─── Severity ─── */
 .severity-critical { color: var(--rose);   }
 .severity-major    { color: var(--amber);  }
-.severity-minor    { color: #60A5FA;       }
+.severity-minor    { color: var(--railway-blue-light); }
 .severity-info     { color: var(--text-secondary); }
 
 /* ─── Score Ring ─── */
@@ -98,17 +148,17 @@ html, body {
 
 /* ─── Animated gradient background ─── */
 .gradient-bg {
-  background: radial-gradient(ellipse at 20% 50%, rgba(10,61,145,0.15) 0%, transparent 50%),
-              radial-gradient(ellipse at 80% 20%, rgba(245,158,11,0.06) 0%, transparent 40%),
+  background: radial-gradient(ellipse at 20% 50%, var(--gradient-radial-1) 0%, transparent 50%),
+              radial-gradient(ellipse at 80% 20%, var(--gradient-radial-2) 0%, transparent 40%),
               var(--surface-0);
 }
 
 /* ─── Hover glow ─── */
 .glow-hover {
-  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+  transition: box-shadow 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
 }
 .glow-hover:hover {
-  box-shadow: 0 0 24px rgba(10, 61, 145, 0.3);
+  box-shadow: var(--shadow-glow);
   border-color: var(--railway-blue-light);
 }
 
@@ -118,11 +168,12 @@ html, body {
   border-radius: 20px;
   transition: all 0.25s ease;
   cursor: pointer;
+  background: var(--surface-1);
 }
 .upload-zone:hover, .upload-zone.drag-over {
   border-color: var(--railway-blue-light);
-  background: rgba(21, 87, 204, 0.06);
-  box-shadow: 0 0 30px rgba(10,61,145,0.2);
+  background: var(--railway-blue-dim);
+  box-shadow: var(--shadow-glow);
 }
 
 /* ─── Pulse animation for parsing state ─── */
@@ -178,14 +229,15 @@ html, body {
   text-decoration: none;
 }
 .nav-item:hover  { background: var(--surface-2); color: var(--text-primary); }
-.nav-item.active { background: var(--railway-blue-dim); color: #6BA3FF; border: 1px solid rgba(21,87,204,0.3); }
+.nav-item.active { background: var(--railway-blue-dim); color: var(--active-nav-color); border: 1px solid var(--border-light); }
 
 /* ─── Tooltip ─── */
 .recharts-tooltip-wrapper .recharts-default-tooltip {
-  background: var(--surface-2) !important;
+  background: var(--surface-1) !important;
   border: 1px solid var(--border) !important;
   border-radius: 10px !important;
   color: var(--text-primary) !important;
+  box-shadow: var(--card-shadow) !important;
 }
 
 /* ─── Diff rows ─── */
