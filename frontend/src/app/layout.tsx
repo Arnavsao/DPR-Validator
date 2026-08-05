@@ -12,7 +12,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className="gradient-bg" style={{ display: 'flex', minHeight: '100vh' }}>
+      <body className="gradient-bg" style={{ display: 'flex', minHeight: '100vh' }} suppressHydrationWarning>
         <QueryProvider>
           <Sidebar />
           <main style={{ flex: 1, overflowY: 'auto', padding: '32px 36px' }}>
