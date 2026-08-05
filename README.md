@@ -1,4 +1,4 @@
-# 🚂 DPR Validator
+# DPR Validator
 
 **AI-powered validation engine for Indian Railway Detailed Project Reports (DPRs)**
 
@@ -6,21 +6,21 @@ DPR Validator automatically parses, structures, and validates railway DPR docume
 
 ---
 
-## ✨ Features
+## Features
 
-- **📄 Intelligent PDF Parsing** — Multi-stage pipeline with text extraction, OCR fallback (for scanned PDFs), table extraction, and automatic chapter/section hierarchy detection
-- **🧠 RAG Validation** — ChromaDB vector store + Ollama LLM (qwen3, gemma) for high-accuracy, spec-grounded validation with evidence citations
-- **⚡ Heuristic Fallback** — Fast regex/fuzzy-matching validation engine when LLM is unavailable
-- **📊 Scoring & Grading** — Overall compliance score (0–100) with per-category breakdowns (chapter structure, completeness, tables)
-- **🔍 Evidence Engine** — Every finding is backed by page numbers, text snippets, reference sections, and suggested corrections — zero hallucination
-- **📋 Report Generation** — Exportable validation reports with detailed findings
-- **🔄 Document Comparison** — Compare uploaded DPRs against reference documents (Adipur, Akola, ADRA, ADTP)
-- **🎛️ Real-time Progress** — Live parsing progress with pause/resume support
-- **🌐 Modern Web UI** — Next.js 16 dashboard with Framer Motion animations, interactive charts (Recharts), and responsive design
+- **Intelligent PDF Parsing** — Multi-stage pipeline with text extraction, OCR fallback (for scanned PDFs), table extraction, and automatic chapter/section hierarchy detection
+- **RAG Validation** — ChromaDB vector store + Ollama LLM (qwen3, gemma) for high-accuracy, spec-grounded validation with evidence citations
+- **Heuristic Fallback** — Fast regex/fuzzy-matching validation engine when LLM is unavailable
+- **Scoring & Grading** — Overall compliance score (0–100) with per-category breakdowns (chapter structure, completeness, tables)
+- **Evidence Engine** — Every finding is backed by page numbers, text snippets, reference sections, and suggested corrections — zero hallucination
+- **Report Generation** — Exportable validation reports with detailed findings
+- **Document Comparison** — Compare uploaded DPRs against reference documents (Adipur, Akola, ADRA, ADTP)
+- **Real-time Progress** — Live parsing progress with pause/resume support
+- **Modern Web UI** — Next.js 16 dashboard with Framer Motion animations, interactive charts (Recharts), and responsive design
 
 ---
 
-## 🏗️ Architecture
+## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -51,7 +51,7 @@ DPR Validator automatically parses, structures, and validates railway DPR docume
 
 ---
 
-## 🛠️ Tech Stack
+## Tech Stack
 
 ### Backend
 | Component | Technology |
@@ -78,7 +78,7 @@ DPR Validator automatically parses, structures, and validates railway DPR docume
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 DPR Validator/
@@ -173,7 +173,7 @@ DPR Validator/
 
 ---
 
-## 🚀 Getting Started
+## Getting Started
 
 ### Prerequisites
 
@@ -281,14 +281,14 @@ npm run dev
 
 | Service | URL |
 |---------|-----|
-| 🌐 Frontend | http://localhost:3000 |
-| 📡 Backend API | http://localhost:8000 |
-| 📚 API Docs (Swagger) | http://localhost:8000/docs |
-| 🧠 KB Status | http://localhost:8000/api/kb/status |
+| Frontend | http://localhost:3000 |
+| Backend API | http://localhost:8000 |
+| API Docs (Swagger) | http://localhost:8000/docs |
+| KB Status | http://localhost:8000/api/kb/status |
 
 ---
 
-## 📡 API Reference
+## API Reference
 
 ### Documents
 | Method | Endpoint | Description |
@@ -319,7 +319,7 @@ npm run dev
 
 ---
 
-## 🔄 Validation Modes
+## Validation Modes
 
 ### RAG Mode (Default)
 Uses the full LLM + ChromaDB pipeline for high-accuracy validation:
@@ -337,7 +337,7 @@ Fast regex/fuzzy-matching engine for quick structural checks:
 
 ---
 
-## 🗄️ Knowledge Base
+## Knowledge Base
 
 The validation knowledge base is stored in ChromaDB with 4 hierarchical collections:
 
@@ -355,7 +355,7 @@ Built from structured JSON sources:
 
 ---
 
-## 🧪 Development
+## Development
 
 ### Knowledge Base Management
 
@@ -395,12 +395,12 @@ python migrate_add_rag_fields.py
 
 ---
 
-## 📜 License
+## License
 
 This project is proprietary. All rights reserved.
 
 ---
 
 <p align="center">
-  Built with ❤️ for Indian Railways
+  Built for Indian Railways
 </p>
